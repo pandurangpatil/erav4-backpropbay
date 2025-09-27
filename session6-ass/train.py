@@ -79,7 +79,8 @@ class MNISTTrainer:
             loss = F.nll_loss(y_pred, target)
             loss.backward()
             self.optimizer.step()
-            self.scheduler.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
 
             pred = y_pred.argmax(dim=1, keepdim=True)
             correct += pred.eq(target.view_as(pred)).sum().item()
@@ -142,6 +143,21 @@ class MNISTTrainer:
 
 
 if __name__ == "__main__":
-    # Create trainer for model3 and run training for 20 epochs
-    trainer = MNISTTrainer(model_module_name='model3', epochs=20)
+    import argparse
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Train MNIST model')
+    parser.add_argument('--model', type=str, default='model3',
+                       choices=['model1', 'model2', 'model3'],
+                       help='Model to use for training (default: model3)')
+    parser.add_argument('--epochs', type=int, default=20,
+                       help='Number of training epochs (default: 20)')
+    parser.add_argument('--batch-size', type=int, default=128,
+                       help='Batch size for training (default: 128)')
+    args = parser.parse_args()
+
+    # Create trainer with selected model and run training
+    trainer = MNISTTrainer(model_module_name=args.model,
+                          epochs=args.epochs,
+                          batch_size=args.batch_size)
     trainer.run()
