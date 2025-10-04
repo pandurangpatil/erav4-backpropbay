@@ -155,6 +155,16 @@ The model uses Albumentations library for advanced augmentation:
 
 ## Training Visualizations
 
+### Training Metrics Graphs
+
+![Training Metrics](training_metrics_model.png)
+
+The above visualization shows the progression of all key metrics across 30 epochs:
+- **Top Left**: Training Loss progression
+- **Bottom Left**: Training Accuracy progression
+- **Top Right**: Test Loss progression
+- **Bottom Right**: Test Accuracy progression
+
 ### Loss Curves
 The training process shows consistent decrease in both training and testing loss:
 - **Training Loss**: 1.39 → 0.41 (drops ~70%)
@@ -169,7 +179,12 @@ Accuracy steadily improves across both sets:
 
 The gap between training and testing accuracy remains small throughout training, demonstrating effective regularization.
 
-> **Note**: Detailed ASCII visualizations of loss and accuracy curves are available in the training notebook output. For graphical plots, run the training script which generates `training_metrics_model.png`.
+![Combined Training and Test Metrics](training_metrics_combined.png)
+
+The combined visualization above clearly shows the relationship between training and test metrics, demonstrating:
+- Close tracking between train and test loss (minimal overfitting)
+- Steady improvement in both training and test accuracy
+- Convergence towards stable performance in later epochs
 
 ## Hardware & Training Time
 - **Device**: CUDA (Tesla T4 GPU on Google Colab)
@@ -187,38 +202,131 @@ session7-ass/
 └── README.md            # This file
 ```
 
+## Setup and Installation
+
+### Prerequisites
+- **Python Version**: Python 3.8 or higher (tested with Python 3.12.3)
+- **GPU (Optional)**: CUDA-compatible GPU for faster training (CPU training is supported but slower)
+
+### Step 1: Clone the Repository
+```bash
+git clone <repository-url>
+cd session7-ass
+```
+
+### Step 2: Create Virtual Environment
+It's recommended to use a virtual environment to avoid dependency conflicts.
+
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Linux/Mac:
+source venv/bin/activate
+# On Windows:
+venv\Scripts\activate
+```
+
+### Step 3: Install Dependencies
+Install all required packages from requirements.txt:
+```bash
+pip install -r requirements.txt
+```
+
+This will install:
+- PyTorch (>=2.0.0) and torchvision (>=0.15.0)
+- Albumentations (>=1.3.0) for data augmentation
+- torchsummary, tqdm, matplotlib, numpy, plotille
+
+### Step 4: Verify Installation
+```bash
+python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA Available: {torch.cuda.is_available()}')"
+```
+
 ## Usage
 
-### Training
+### Training the Model
+
+#### Option 1: Command Line (Recommended)
+Train the model using the command-line interface:
+
+```bash
+# Basic training with default parameters (20 epochs, batch size 128)
+python train.py
+
+# Custom training with 30 epochs
+python train.py --epochs 30
+
+# Full custom configuration
+python train.py --model model --epochs 30 --batch-size 128
+```
+
+**Command-line Arguments:**
+- `--model`: Model module name to use (default: `model`)
+- `--epochs`: Number of training epochs (default: `20`)
+- `--batch-size`: Batch size for training (default: `128`)
+
+**Expected Output:**
+- Model architecture summary with parameter counts
+- Training progress with loss and accuracy per epoch
+- Test accuracy after each epoch
+- ASCII plots of training/testing metrics in terminal
+- Saved plot: `training_metrics_model.png`
+
+#### Option 2: Python API
+Train programmatically from Python:
+
 ```python
 from train import CIFARTrainer
 
+# Create trainer instance
 trainer = CIFARTrainer(
     model_module_name='model',
     epochs=30,
     batch_size=128
 )
+
+# Run training
 final_accuracy = trainer.run()
+print(f"Final test accuracy: {final_accuracy:.2f}%")
 ```
 
-### Model Loading
+### Model Loading and Inference
 ```python
+import torch
 from model import Net
 
+# Load trained model
 model = Net()
 model.load_state_dict(torch.load('model.pth'))
+model.eval()
+
+# Use for inference
+# (Add your inference code here)
 ```
 
 ## Requirements
+
+### Python Packages
+All dependencies are listed in `requirements.txt`:
+
 ```
 torch>=2.0.0
-torchvision
-albumentations
-numpy
-tqdm
-torchsummary
-plotille
+torchvision>=0.15.0
+torchsummary>=0.1.5
+tqdm>=4.65.0
+matplotlib>=3.7.0
+numpy>=1.24.0
+plotille>=5.0.0
+albumentations>=1.3.0
 ```
+
+### System Requirements
+- **Python**: 3.8 or higher
+- **RAM**: Minimum 8GB (16GB recommended)
+- **Storage**: ~500MB for dataset + models
+- **GPU**: Optional but recommended (CUDA-compatible GPU with 4GB+ VRAM)
 
 ## Conclusion
 
