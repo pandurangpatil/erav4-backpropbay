@@ -1,0 +1,26 @@
+# Core dependencies
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.24.0
+pillow>=9.5.0
+
+# Data augmentation
+albumentations>=1.3.0
+
+# Utilities
+tqdm>=4.65.0
+pyyaml>=6.0
+
+# HuggingFace integration (optional)
+huggingface-hub>=0.16.0
+
+# AWS SageMaker (for local testing)
+sagemaker>=2.150.0
+boto3>=1.26.0
+
+# Visualization (optional, for local testing)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Model summary (optional)
+torchsummary>=1.5.1

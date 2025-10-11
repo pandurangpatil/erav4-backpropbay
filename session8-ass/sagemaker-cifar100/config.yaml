@@ -1,0 +1,73 @@
+# CIFAR-100 WideResNet Training Configuration
+# This file contains hyperparameters for AWS SageMaker training
+
+# Model Architecture
+model:
+  depth: 28                    # Network depth (must satisfy (depth-4)%6==0)
+  widen_factor: 10             # Width multiplier (10 = WideResNet-28-10)
+  dropout: 0.3                 # Dropout rate
+
+# Training Hyperparameters
+training:
+  epochs: 100                  # Maximum number of epochs
+  batch_size: 256              # Training batch size
+  num_workers: 4               # Data loading workers
+  seed: 42                     # Random seed for reproducibility
+
+# Optimizer Settings
+optimizer:
+  type: sgd                    # Optimizer type (sgd, adam, adamw)
+  lr: 0.1                      # Maximum learning rate
+  initial_lr: 0.01             # Initial learning rate (for warmup)
+  min_lr: 0.0001              # Minimum learning rate
+  momentum: 0.9                # SGD momentum
+  weight_decay: 0.001          # L2 regularization
+
+# Learning Rate Schedule
+scheduler:
+  warmup_epochs: 5             # Number of warmup epochs
+  cosine_t0: 25                # Cosine annealing T_0 (cycle length)
+
+# Data Augmentation
+augmentation:
+  use_mixup: true              # Enable MixUp augmentation
+  mixup_alpha: 0.2             # MixUp alpha parameter
+  label_smoothing: 0.1         # Label smoothing factor
+  use_albumentations: true     # Use Albumentations library
+
+# Regularization
+regularization:
+  gradient_clip: 1.0           # Gradient clipping max norm (0 to disable)
+
+# Early Stopping
+early_stopping:
+  patience: 15                 # Epochs to wait for improvement
+  target_accuracy: 74.0        # Stop if this accuracy is reached
+
+# HuggingFace Integration (optional)
+huggingface:
+  enabled: false               # Enable HuggingFace upload
+  repo_id: ""                  # HuggingFace repository ID
+  # Note: HF_TOKEN should be set as environment variable
+
+# AWS SageMaker Settings
+sagemaker:
+  instance_type: "ml.p3.2xlarge"  # Training instance type
+  instance_count: 1                # Number of instances
+  volume_size: 30                  # EBS volume size (GB)
+  max_run: 86400                   # Max training time (seconds) = 24 hours
+  use_spot_instances: false        # Use spot instances for cost savings
+  max_wait: null                   # Max wait time for spot instances
+
+# Output Settings
+output:
+  save_checkpoints: true       # Save periodic checkpoints
+  checkpoint_frequency: 10     # Save checkpoint every N epochs
+  save_best_only: false        # Only save best model (vs all checkpoints)
+
+# Instance Type Recommendations:
+# - ml.p3.2xlarge: 1x V100 GPU (16GB), recommended for this workload
+# - ml.p3.8xlarge: 4x V100 GPUs (64GB total), for distributed training
+# - ml.p3.16xlarge: 8x V100 GPUs (128GB total), for large-scale training
+# - ml.g4dn.xlarge: 1x T4 GPU (16GB), budget option (slower)
+# - ml.g5.xlarge: 1x A10G GPU (24GB), good balance of cost/performance
