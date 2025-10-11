@@ -22,6 +22,13 @@ After extensive experimentation across **6 major training sessions**, the best r
 
 **Key Finding**: Session 02 (71.20%) is recommended over Session 04 (72.98%) due to **better generalization** and **lower overfitting risk** from consistent regularization throughout training.
 
+### 🤗 Trained Models on HuggingFace Hub
+
+| Session | Model Link | Test Accuracy | Status |
+|---------|-----------|---------------|---------|
+| **Session 02** | [pandurangpatil/cifar100-wideresnet-session8](https://huggingface.co/pandurangpatil/cifar100-wideresnet-session8) | **71.20%** | ✅ **RECOMMENDED** |
+| **Session 04** | [pandurangpatil/cifar100-wideresnet-session04](https://huggingface.co/pandurangpatil/cifar100-wideresnet-session04) | **72.98%** | ⚠️ Higher accuracy |
+
 ---
 
 ## Table of Contents
@@ -67,15 +74,15 @@ All subsequent experiments used **WideResNet-28-10** (36.5M parameters):
 
 ## Trial History
 
-| Session | Model | Test Accuracy | Epochs | Key Strategy | Status |
-|---------|-------|---------------|--------|--------------|--------|
-| Base | ResNet18/34 | 62.96% | 100 | Standard architectures | ❌ Insufficient |
-| Base | WideResNet-28-10 | 68.08% | 100 | First WideResNet trial | ✅ Baseline |
-| 01 | WideResNet-28-10 | 6.60% | 1 | Initial attempt | ❌ Training error |
-| **02** | **WideResNet-28-10** | **71.20%** | **100** | **Optimized config** | ✅ **BEST (Stable)** |
-| 03 | WideResNet-28-10 | 71.20% | 100 | Duplicate of Session 02 | ✅ Verified |
-| **04** | **WideResNet-28-10** | **72.98%** | **99** | **Aggressive progressive** | ⚠️ **Highest (Risk)** |
-| 05 | WideResNet-28-10 | N/A | - | Conservative progressive | ⏸️ Not executed |
+| Session | Model | Test Accuracy | Epochs | Key Strategy | Status | HuggingFace Model |
+|---------|-------|---------------|--------|--------------|--------|-------------------|
+| Base | ResNet18/34 | 62.96% | 100 | Standard architectures | ❌ Insufficient | - |
+| Base | WideResNet-28-10 | 68.08% | 100 | First WideResNet trial | ✅ Baseline | - |
+| 01 | WideResNet-28-10 | 6.60% | 1 | Initial attempt | ❌ Training error | - |
+| **02** | **WideResNet-28-10** | **71.20%** | **100** | **Optimized config** | ✅ **BEST (Stable)** | [🤗 Model](https://huggingface.co/pandurangpatil/cifar100-wideresnet-session8) |
+| 03 | WideResNet-28-10 | 71.20% | 100 | Duplicate of Session 02 | ✅ Verified | - |
+| **04** | **WideResNet-28-10** | **72.98%** | **99** | **Aggressive progressive** | ⚠️ **Highest (Risk)** | [🤗 Model](https://huggingface.co/pandurangpatil/cifar100-wideresnet-session04) |
+| 05 | WideResNet-28-10 | N/A | - | Conservative progressive | ⏸️ Not executed | - |
 
 ---
 
