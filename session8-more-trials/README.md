@@ -228,6 +228,345 @@ python train.py --scheduler onecycle
 python train.py --scheduler onecycle --scheduler-config /path/to/my_config.json
 ```
 
+## LR Finder (Automatic Learning Rate Discovery)
+
+The LR Finder automatically determines optimal learning rates for your scheduler by running a range test before training. This feature is based on Leslie Smith's paper ["Cyclical Learning Rates for Training Neural Networks"](https://arxiv.org/abs/1506.01186).
+
+### What is LR Finder?
+
+LR Finder runs a short training session (typically 2-5 epochs) with exponentially increasing learning rates from very small (1e-6) to very large (1.0) values. It tracks the loss at each learning rate and helps you find:
+- **For OneCycleLR**: Optimal `max_lr` and `base_lr`
+- **For CosineAnnealing**: Optimal `initial_lr`
+
+### How It Works
+
+1. **Range Test**: Trains model with LRs ranging from `start_lr` to `end_lr`
+2. **Clean Data**: Temporarily disables MixUp, label smoothing, and aggressive augmentations
+3. **Loss Tracking**: Records smoothed loss at each learning rate
+4. **Analysis**: Applies selected method to find optimal LR(s)
+5. **Scheduler Update**: Automatically updates scheduler with found LRs
+6. **Training Start**: Proceeds with normal training using optimal LRs
+
+### Configuration
+
+Add `lr_finder` section to your `config.json`:
+
+```json
+{
+  "lr_finder": {
+    "num_epochs": 3,
+    "start_lr": 1e-6,
+    "end_lr": 1.0,
+    "selection_method": "steepest_gradient"
+  },
+  "scheduler": {
+    "onecycle": {
+      "max_lr": 0.1,
+      "pct_start": 0.3,
+      "div_factor": 25.0
+    }
+  }
+}
+```
+
+#### LR Finder Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `num_epochs` | 3 | Number of epochs for range test (2-5 recommended) |
+| `start_lr` | 1e-6 | Starting learning rate (very small) |
+| `end_lr` | 1.0 | Ending learning rate (very large) |
+| `selection_method` | "steepest_gradient" | Method for selecting optimal LR |
+
+### Selection Methods
+
+#### 1. Steepest Gradient (Recommended)
+
+Selects the learning rate where loss is decreasing fastest (maximum negative gradient).
+
+**When to use**: Default choice for most cases. Finds aggressive max_lr that enables fast learning.
+
+**Pros**:
+- Often finds the "sweet spot" for rapid convergence
+- Good balance between speed and stability
+- Works well for OneCycleLR
+
+**Cons**:
+- May be too aggressive for some models/datasets
+- Requires smooth loss curve
+
+**Configuration**:
+```json
+{
+  "lr_finder": {
+    "selection_method": "steepest_gradient"
+  }
+}
+```
+
+#### 2. Before Divergence (Conservative)
+
+Selects the learning rate just before the loss starts increasing significantly.
+
+**When to use**: When training stability is critical, or if steepest gradient gives unstable results.
+
+**Pros**:
+- Lower risk of divergence
+- More stable training
+- Good for sensitive models
+
+**Cons**:
+- May be overly conservative
+- Slower convergence than steepest gradient
+
+**Configuration**:
+```json
+{
+  "lr_finder": {
+    "selection_method": "before_divergence"
+  }
+}
+```
+
+#### 3. Valley (Experimental)
+
+Selects the learning rate at the minimum loss point.
+
+**When to use**: Exploration and experimentation. Not recommended for production.
+
+**Pros**:
+- Represents best performance during range test
+- Easy to understand conceptually
+
+**Cons**:
+- May not generalize well to full training
+- Can be misleading
+- Often too conservative
+
+**Configuration**:
+```json
+{
+  "lr_finder": {
+    "selection_method": "valley"
+  }
+}
+```
+
+#### 4. Manual Inspection
+
+Displays the plot and allows you to manually inspect the curve.
+
+**When to use**: For experts who want visual inspection and full control.
+
+**Pros**:
+- Maximum flexibility
+- You can see exactly what's happening
+- Good for learning and understanding
+
+**Cons**:
+- Requires manual intervention
+- Breaks automation
+- Slower workflow
+
+**Configuration**:
+```json
+{
+  "lr_finder": {
+    "selection_method": "manual"
+  }
+}
+```
+
+### Usage Examples
+
+#### Basic Usage with OneCycleLR
+
+```bash
+# Run LR Finder then train with OneCycleLR
+python train.py --lr-finder --scheduler onecycle
+
+# Example output:
+# LR FINDER ANALYSIS
+# ==================================================================
+# Method: Steepest Gradient
+# → Suggested LR: 0.085432
+#
+# ONECYCLE LR RECOMMENDATIONS
+# ==================================================================
+# Max LR:  0.085432 (peak learning rate)
+# Base LR: 0.008543 (starting learning rate)
+# Ratio:   10.0x (max_lr / base_lr)
+# ==================================================================
+#
+# UPDATING ONECYCLE SCHEDULER WITH LR FINDER RESULTS
+# Previous max_lr: 0.100000
+# New max_lr:      0.085432
+# New base_lr:     0.008543
+```
+
+#### Basic Usage with CosineAnnealing
+
+```bash
+# Run LR Finder then train with CosineAnnealing
+python train.py --lr-finder --scheduler cosine
+
+# Example output:
+# COSINE ANNEALING LR RECOMMENDATIONS
+# ==================================================================
+# Initial LR: 0.092341
+# This will be used with existing T_0 and eta_min parameters
+# ==================================================================
+```
+
+#### With Custom Config File
+
+```bash
+# Use custom config with LR Finder settings
+python train.py --lr-finder --scheduler onecycle --scheduler-config ./my_config.json
+```
+
+#### With ResNet50
+
+```bash
+# LR Finder with ResNet50
+python train.py --model resnet50 --lr-finder --scheduler onecycle
+```
+
+### Python API Usage
+
+```python
+from train import CIFARTrainer
+
+# Configure LR Finder
+lr_finder_config = {
+    'num_epochs': 3,
+    'start_lr': 1e-6,
+    'end_lr': 1.0,
+    'selection_method': 'steepest_gradient'
+}
+
+# Train with LR Finder
+trainer = CIFARTrainer(
+    model_module_name='model',
+    epochs=100,
+    batch_size=256,
+    scheduler_type='onecycle',
+    use_lr_finder=True,              # Enable LR Finder
+    lr_finder_config=lr_finder_config
+)
+
+best_acc = trainer.run()
+```
+
+### Output Files
+
+When LR Finder runs, it creates:
+- **`lr_finder_plot.png`**: Visualization showing:
+  - Loss vs Learning Rate curve (log scale)
+  - Marked optimal LR points (max_lr, base_lr, or initial_lr)
+  - Clear legend and annotations
+
+Saved in your checkpoint directory: `./checkpoint_N/lr_finder_plot.png`
+
+### How LR Finder Affects Training
+
+During LR Finder epochs (before actual training):
+- ✅ **Model training happens** with varying LRs
+- ❌ **No checkpoints saved** during LR Finder
+- ❌ **MixUp disabled** for clean signal
+- ❌ **Label smoothing disabled** (set to 0.0)
+- ✅ **Basic augmentations kept** (flip, rotate, etc.)
+- ✅ **Model state restored** after range test
+
+After LR Finder completes:
+- Optimal LR(s) determined and displayed
+- Scheduler automatically updated with new LRs
+- Normal training begins with all augmentations enabled
+- Training proceeds as usual
+
+### Best Practices
+
+1. **Start with steepest_gradient**: Works well for most cases
+2. **Try before_divergence if training is unstable**: More conservative
+3. **Use 3 epochs for LR Finder**: Good balance of speed and accuracy
+4. **Inspect the plot**: Always check `lr_finder_plot.png` to verify results
+5. **Adjust if needed**: If suggested LR seems too high/low, try different method
+6. **Dataset-specific tuning**: Different datasets may prefer different methods
+
+### When to Use LR Finder
+
+**Use LR Finder when**:
+- ✅ Starting with a new dataset or model architecture
+- ✅ Unsure about optimal learning rate
+- ✅ Want to save time on manual LR tuning
+- ✅ Using OneCycleLR (especially important for max_lr)
+- ✅ Experimenting with different schedulers
+
+**Skip LR Finder when**:
+- ❌ You already know good LR values for your setup
+- ❌ Reproducing published results with known hyperparameters
+- ❌ Very short training runs (< 20 epochs)
+- ❌ Doing quick debugging/testing
+
+### Troubleshooting LR Finder
+
+#### Issue: LR Finder suggests very high/low LR
+
+**Solution**:
+- Check `lr_finder_plot.png` to inspect the curve
+- Try a different `selection_method`
+- Adjust `start_lr` or `end_lr` range
+- Manually override if needed
+
+#### Issue: Loss curve is very noisy
+
+**Solution**:
+- Increase `num_epochs` (try 4-5 instead of 3)
+- Check if data augmentation is too aggressive
+- Ensure batch size is reasonable (not too small)
+
+#### Issue: LR Finder diverges early
+
+**Solution**:
+- Reduce `end_lr` (try 0.5 instead of 1.0)
+- Check model initialization
+- Verify data preprocessing is correct
+
+### Example: Complete Workflow
+
+```bash
+# Step 1: Prepare config with LR Finder settings
+cat > config.json <<EOF
+{
+  "lr_finder": {
+    "num_epochs": 3,
+    "start_lr": 1e-6,
+    "end_lr": 1.0,
+    "selection_method": "steepest_gradient"
+  },
+  "scheduler": {
+    "onecycle": {
+      "max_lr": 0.1,
+      "pct_start": 0.3,
+      "div_factor": 25.0,
+      "final_div_factor": 10000.0,
+      "three_phase": false
+    }
+  }
+}
+EOF
+
+# Step 2: Run training with LR Finder
+python train.py --lr-finder --scheduler onecycle --epochs 100
+
+# Step 3: Check results
+# - LR Finder runs for 3 epochs
+# - Optimal LRs displayed in console
+# - Check ./checkpoint_1/lr_finder_plot.png
+# - Training proceeds with optimal LRs
+# - Final model saved in ./checkpoint_1/
+```
+
 ## Usage
 
 ### 1. Command-Line Training
@@ -305,6 +644,7 @@ python train.py \
   --device DEVICE \                 # Device: 'cuda', 'mps', 'cpu', or None for auto-detect (default: None)
   --scheduler SCHEDULER_TYPE \      # Scheduler: 'cosine' or 'onecycle' (default: 'cosine')
   --scheduler-config CONFIG_PATH \  # Path to scheduler config JSON (for onecycle, default: ./config.json)
+  --lr-finder \                     # Run LR Finder to auto-determine optimal learning rates (optional)
   --hf-token HF_TOKEN \             # HuggingFace API token (optional)
   --hf-repo HF_REPO_ID              # HuggingFace repo ID like 'username/repo' (optional)
 ```
@@ -388,6 +728,8 @@ print(f"Best test accuracy: {best_accuracy:.2f}%")
 | `batch_size` | int | `256` | Batch size for training and testing |
 | `scheduler_type` | str | `'cosine'` | Learning rate scheduler type: 'cosine' or 'onecycle' |
 | `scheduler_config_path` | str | `None` | Path to scheduler config JSON (for OneCycleLR) |
+| `use_lr_finder` | bool | `False` | Enable LR Finder to automatically determine optimal LRs |
+| `lr_finder_config` | dict | `None` | LR Finder configuration (num_epochs, start_lr, end_lr, selection_method) |
 | `use_mixup` | bool | `True` | Enable MixUp data augmentation |
 | `mixup_alpha` | float | `0.2` | MixUp alpha parameter (beta distribution) |
 | `label_smoothing` | float | `0.1` | Label smoothing factor (0.0 = no smoothing) |

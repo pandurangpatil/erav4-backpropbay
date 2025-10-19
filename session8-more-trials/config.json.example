@@ -1,4 +1,10 @@
 {
+  "lr_finder": {
+    "num_epochs": 3,
+    "start_lr": 1e-6,
+    "end_lr": 1.0,
+    "selection_method": "steepest_gradient"
+  },
   "scheduler": {
     "onecycle": {
       "max_lr": 0.1,
@@ -7,6 +13,38 @@
       "div_factor": 25.0,
       "final_div_factor": 10000.0,
       "three_phase": false
+    }
+  },
+  "lr_finder_description": {
+    "num_epochs": "Number of epochs to run LR range test (default: 3, recommended: 2-5)",
+    "start_lr": "Starting learning rate for range test (default: 1e-6)",
+    "end_lr": "Ending learning rate for range test (default: 1.0)",
+    "selection_method": "Method for selecting optimal LR from the curve. Options: 'steepest_gradient', 'before_divergence', 'valley', 'manual'"
+  },
+  "lr_finder_selection_methods": {
+    "steepest_gradient": {
+      "description": "Selects LR where loss is decreasing fastest (maximum negative gradient)",
+      "use_case": "Best for finding aggressive max_lr that enables fast learning",
+      "pros": "Often finds the sweet spot for rapid convergence",
+      "cons": "May be too aggressive for some models/datasets"
+    },
+    "before_divergence": {
+      "description": "Selects LR just before the loss starts increasing",
+      "use_case": "Conservative approach, safer choice for stable training",
+      "pros": "Lower risk of divergence, more stable training",
+      "cons": "May be overly conservative, slower convergence"
+    },
+    "valley": {
+      "description": "Selects LR at the minimum loss point",
+      "use_case": "Experimental method, useful for exploration",
+      "pros": "Represents the point of best performance during range test",
+      "cons": "May not generalize well to full training, can be misleading"
+    },
+    "manual": {
+      "description": "Displays the plot and allows manual inspection",
+      "use_case": "For experts who want to visually inspect the curve",
+      "pros": "Maximum control and flexibility",
+      "cons": "Requires manual intervention, breaks automation"
     }
   },
   "description": {

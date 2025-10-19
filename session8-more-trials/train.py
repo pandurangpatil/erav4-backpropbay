@@ -168,6 +168,382 @@ class WarmupScheduler:
 
 
 # ------------------------------
+# LR Finder for Automatic LR Selection
+# ------------------------------
+class LRFinder:
+    """
+    Learning Rate Finder using the range test method.
+    Based on Leslie Smith's paper: "Cyclical Learning Rates for Training Neural Networks"
+    """
+    def __init__(self, model, optimizer, criterion, device, data_loader):
+        self.model = model
+        self.optimizer = optimizer
+        self.criterion = criterion
+        self.device = device
+        self.data_loader = data_loader
+
+        # Storage for results
+        self.lrs = []
+        self.losses = []
+
+        # State management
+        self.best_loss = float('inf')
+        self.initial_model_state = None
+        self.initial_optimizer_state = None
+
+    def range_test(self, start_lr=1e-6, end_lr=1.0, num_epochs=3, smoothing=0.05):
+        """
+        Run the LR range test.
+
+        Args:
+            start_lr: Starting learning rate
+            end_lr: Ending learning rate
+            num_epochs: Number of epochs to run
+            smoothing: Exponential smoothing factor for loss
+
+        Returns:
+            tuple: (learning_rates, losses)
+        """
+        print("\n" + "="*70)
+        print("LEARNING RATE FINDER - RANGE TEST")
+        print("="*70)
+        print(f"Testing learning rates from {start_lr:.2e} to {end_lr:.2e}")
+        print(f"Running for {num_epochs} epochs")
+        print(f"Note: Using clean data (no MixUp, no Label Smoothing)")
+        print("="*70 + "\n")
+
+        # Save initial state
+        self.initial_model_state = {k: v.cpu().clone() for k, v in self.model.state_dict().items()}
+        self.initial_optimizer_state = self.optimizer.state_dict()
+
+        # Calculate total iterations
+        total_iters = len(self.data_loader) * num_epochs
+        lr_lambda = lambda x: np.exp(x * np.log(end_lr / start_lr) / total_iters)
+
+        # Set initial LR
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = start_lr
+
+        # Run training
+        self.model.train()
+        iteration = 0
+        smoothed_loss = 0.0
+
+        for epoch in range(num_epochs):
+            pbar = tqdm(self.data_loader, desc=f"LR Finder Epoch {epoch+1}/{num_epochs}")
+
+            for batch_idx, (data, target) in enumerate(pbar):
+                data, target = data.to(self.device), target.to(self.device)
+
+                # Forward pass (no mixup, no label smoothing)
+                self.optimizer.zero_grad()
+                outputs = self.model(data)
+                loss = self.criterion(outputs, target)
+
+                # Track smoothed loss
+                if iteration == 0:
+                    smoothed_loss = loss.item()
+                else:
+                    smoothed_loss = smoothing * loss.item() + (1 - smoothing) * smoothed_loss
+
+                # Check for divergence
+                if smoothed_loss > 4 * self.best_loss or torch.isnan(loss):
+                    print(f"\n⚠ Loss diverging (current: {smoothed_loss:.4f}, best: {self.best_loss:.4f})")
+                    print("Stopping LR range test early")
+                    break
+
+                # Update best loss
+                if smoothed_loss < self.best_loss:
+                    self.best_loss = smoothed_loss
+
+                # Store LR and loss
+                current_lr = self.optimizer.param_groups[0]['lr']
+                self.lrs.append(current_lr)
+                self.losses.append(smoothed_loss)
+
+                # Backward pass
+                loss.backward()
+                self.optimizer.step()
+
+                # Update learning rate
+                iteration += 1
+                new_lr = start_lr * lr_lambda(iteration)
+                for param_group in self.optimizer.param_groups:
+                    param_group['lr'] = new_lr
+
+                pbar.set_postfix({'lr': f'{current_lr:.2e}', 'loss': f'{smoothed_loss:.4f}'})
+
+            # Early stopping if loss diverged
+            if smoothed_loss > 4 * self.best_loss or torch.isnan(loss):
+                break
+
+        # Restore initial state
+        print("\nRestoring initial model and optimizer state...")
+        self.model.load_state_dict(self.initial_model_state)
+        self.optimizer.load_state_dict(self.initial_optimizer_state)
+
+        print(f"✓ LR range test completed: {len(self.lrs)} data points collected\n")
+        return self.lrs, self.losses
+
+    def find_steepest_gradient(self, skip_start=10, skip_end=5):
+        """
+        Find LR with steepest negative gradient (fastest learning).
+
+        Args:
+            skip_start: Skip first N points (noisy at very low LR)
+            skip_end: Skip last N points (diverging region)
+
+        Returns:
+            float: Suggested learning rate
+        """
+        if len(self.losses) < skip_start + skip_end + 10:
+            print("⚠ Not enough data points for gradient calculation")
+            return None
+
+        # Calculate gradients
+        losses = np.array(self.losses[skip_start:-skip_end if skip_end > 0 else None])
+        lrs = np.array(self.lrs[skip_start:-skip_end if skip_end > 0 else None])
+
+        gradients = np.gradient(losses)
+        min_gradient_idx = np.argmin(gradients)
+
+        suggested_lr = lrs[min_gradient_idx]
+        print(f"  Method: Steepest Gradient")
+        print(f"  → Suggested LR: {suggested_lr:.6f}")
+        print(f"  → Loss at this point: {losses[min_gradient_idx]:.4f}")
+
+        return suggested_lr
+
+    def find_before_divergence(self, threshold=0.1, skip_start=10):
+        """
+        Find LR just before loss starts increasing significantly.
+
+        Args:
+            threshold: Percentage increase to consider as divergence
+            skip_start: Skip first N points
+
+        Returns:
+            float: Suggested learning rate
+        """
+        if len(self.losses) < skip_start + 10:
+            print("⚠ Not enough data points")
+            return None
+
+        losses = np.array(self.losses[skip_start:])
+        lrs = np.array(self.lrs[skip_start:])
+
+        # Find minimum loss
+        min_loss_idx = np.argmin(losses)
+        min_loss = losses[min_loss_idx]
+
+        # Find where loss increases by threshold percentage
+        for i in range(min_loss_idx, len(losses)):
+            if losses[i] > min_loss * (1 + threshold):
+                # Go back a bit for safety
+                safe_idx = max(0, i - 5)
+                suggested_lr = lrs[safe_idx]
+                print(f"  Method: Before Divergence")
+                print(f"  → Suggested LR: {suggested_lr:.6f}")
+                print(f"  → Loss at this point: {losses[safe_idx]:.4f}")
+                return suggested_lr
+
+        # If no divergence found, use LR at minimum loss
+        suggested_lr = lrs[min_loss_idx]
+        print(f"  Method: Before Divergence (no divergence detected)")
+        print(f"  → Suggested LR: {suggested_lr:.6f}")
+        print(f"  → Loss at this point: {min_loss:.4f}")
+
+        return suggested_lr
+
+    def find_valley(self, skip_start=10, skip_end=5):
+        """
+        Find LR at the valley (minimum loss point).
+
+        Args:
+            skip_start: Skip first N points
+            skip_end: Skip last N points
+
+        Returns:
+            float: Suggested learning rate
+        """
+        if len(self.losses) < skip_start + skip_end + 10:
+            print("⚠ Not enough data points")
+            return None
+
+        losses = np.array(self.losses[skip_start:-skip_end if skip_end > 0 else None])
+        lrs = np.array(self.lrs[skip_start:-skip_end if skip_end > 0 else None])
+
+        min_idx = np.argmin(losses)
+        suggested_lr = lrs[min_idx]
+
+        print(f"  Method: Valley (Minimum Loss)")
+        print(f"  → Suggested LR: {suggested_lr:.6f}")
+        print(f"  → Loss at this point: {losses[min_idx]:.4f}")
+
+        return suggested_lr
+
+    def suggest_lr(self, method='steepest_gradient'):
+        """
+        Suggest learning rate based on the selected method.
+
+        Args:
+            method: One of 'steepest_gradient', 'before_divergence', 'valley', 'manual'
+
+        Returns:
+            float or None: Suggested learning rate (None for manual)
+        """
+        print("\n" + "="*70)
+        print("LR FINDER ANALYSIS")
+        print("="*70)
+
+        if method == 'steepest_gradient':
+            return self.find_steepest_gradient()
+        elif method == 'before_divergence':
+            return self.find_before_divergence()
+        elif method == 'valley':
+            return self.find_valley()
+        elif method == 'manual':
+            print(f"  Method: Manual Selection")
+            print(f"  → Please inspect the plot and select LR manually")
+            print(f"  → LR range tested: {self.lrs[0]:.2e} to {self.lrs[-1]:.2e}")
+            return None
+        else:
+            print(f"⚠ Unknown method: {method}, defaulting to steepest_gradient")
+            return self.find_steepest_gradient()
+
+    def plot(self, save_path=None, suggested_lr=None, max_lr=None, base_lr=None):
+        """
+        Plot the LR finder results.
+
+        Args:
+            save_path: Path to save the plot
+            suggested_lr: Single LR to mark (for CosineAnnealing)
+            max_lr: Max LR to mark (for OneCycle)
+            base_lr: Base LR to mark (for OneCycle)
+        """
+        if len(self.lrs) == 0:
+            print("⚠ No data to plot")
+            return
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.lrs, self.losses, linewidth=2, label='Loss')
+        plt.xscale('log')
+        plt.xlabel('Learning Rate (log scale)', fontsize=12)
+        plt.ylabel('Loss', fontsize=12)
+        plt.title('Learning Rate Finder - Range Test', fontsize=14, fontweight='bold')
+        plt.grid(True, alpha=0.3)
+
+        # Mark suggested LR points
+        if suggested_lr is not None:
+            plt.axvline(x=suggested_lr, color='red', linestyle='--', linewidth=2, label=f'Suggested LR: {suggested_lr:.6f}')
+
+        if max_lr is not None:
+            plt.axvline(x=max_lr, color='green', linestyle='--', linewidth=2, label=f'Max LR: {max_lr:.6f}')
+
+        if base_lr is not None:
+            plt.axvline(x=base_lr, color='blue', linestyle='--', linewidth=2, label=f'Base LR: {base_lr:.6f}')
+
+        plt.legend(fontsize=10)
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            print(f"✓ LR Finder plot saved to: {save_path}")
+
+        plt.close()
+
+    def suggest_scheduler_lrs(self, scheduler_type, method='steepest_gradient'):
+        """
+        Suggest learning rates specific to the scheduler type.
+
+        For OneCycle: Suggests both max_lr and base_lr
+        For CosineAnnealing: Suggests initial_lr
+
+        Args:
+            scheduler_type: 'onecycle' or 'cosine'
+            method: LR selection method
+
+        Returns:
+            dict: Dictionary with suggested LR values
+        """
+        if scheduler_type == 'onecycle':
+            return self._suggest_onecycle_lrs(method)
+        else:  # cosine
+            return self._suggest_cosine_lr(method)
+
+    def _suggest_onecycle_lrs(self, method):
+        """
+        Suggest max_lr and base_lr for OneCycleLR scheduler.
+
+        Strategy:
+        1. Find max_lr using the selected method
+        2. Find base_lr at an earlier point in the curve (1/10 to 1/5 of max_lr)
+        """
+        # Find max_lr using the selected method
+        max_lr = self.suggest_lr(method)
+
+        if max_lr is None:
+            print("⚠ Could not determine max_lr")
+            return {'max_lr': None, 'base_lr': None}
+
+        # Find base_lr: look for a safe starting point
+        # Strategy: Find LR where loss is still decreasing but at ~20% of max_lr
+        base_lr = max_lr / 10.0  # Default to 1/10
+
+        # Try to find a more optimal base_lr by analyzing early portion of curve
+        if len(self.lrs) > 20:
+            # Find index of max_lr
+            max_lr_idx = min(range(len(self.lrs)), key=lambda i: abs(self.lrs[i] - max_lr))
+
+            # Look at first 30% of the range before max_lr
+            early_portion = int(max_lr_idx * 0.3)
+            if early_portion > 10:
+                # Find where loss starts decreasing significantly
+                early_losses = np.array(self.losses[:early_portion])
+                early_lrs = np.array(self.lrs[:early_portion])
+
+                # Find steepest descent in early portion
+                if len(early_losses) > 5:
+                    gradients = np.gradient(early_losses)
+                    # Find where significant learning starts (gradient becomes more negative)
+                    threshold = np.percentile(gradients, 20)  # 20th percentile of gradients
+                    significant_learning_idx = np.where(gradients < threshold)[0]
+
+                    if len(significant_learning_idx) > 0:
+                        base_lr_idx = significant_learning_idx[0]
+                        base_lr = early_lrs[base_lr_idx]
+
+        print(f"\n{'='*70}")
+        print(f"ONECYCLE LR RECOMMENDATIONS")
+        print(f"{'='*70}")
+        print(f"  Max LR:  {max_lr:.6f} (peak learning rate)")
+        print(f"  Base LR: {base_lr:.6f} (starting learning rate)")
+        print(f"  Ratio:   {max_lr/base_lr:.1f}x (max_lr / base_lr)")
+        print(f"{'='*70}\n")
+
+        return {'max_lr': max_lr, 'base_lr': base_lr}
+
+    def _suggest_cosine_lr(self, method):
+        """
+        Suggest initial_lr for CosineAnnealingWarmRestarts scheduler.
+        """
+        initial_lr = self.suggest_lr(method)
+
+        if initial_lr is None:
+            print("⚠ Could not determine initial_lr")
+            return {'initial_lr': None}
+
+        print(f"\n{'='*70}")
+        print(f"COSINE ANNEALING LR RECOMMENDATIONS")
+        print(f"{'='*70}")
+        print(f"  Initial LR: {initial_lr:.6f}")
+        print(f"  This will be used with existing T_0 and eta_min parameters")
+        print(f"{'='*70}\n")
+
+        return {'initial_lr': initial_lr}
+
+
+# ------------------------------
 # HuggingFace Upload Functions
 # ------------------------------
 def upload_to_huggingface(file_path, path_in_repo, repo_id, hf_token, commit_message="Upload file"):
@@ -332,7 +708,8 @@ class CIFARTrainer:
                  use_mixup=True, mixup_alpha=0.2, label_smoothing=0.1,
                  use_amp=True, gradient_clip=1.0, warmup_epochs=5,
                  checkpoint_epochs=None, hf_token=None, hf_repo_id=None,
-                 device=None, scheduler_type='cosine', scheduler_config_path=None):
+                 device=None, scheduler_type='cosine', scheduler_config_path=None,
+                 use_lr_finder=False, lr_finder_config=None):
         """
         Initialize the CIFAR-100 trainer with advanced features.
 
@@ -352,6 +729,8 @@ class CIFARTrainer:
             device: Device to use for training ('cuda', 'mps', 'cpu', or None for auto-detect)
             scheduler_type: Learning rate scheduler type ('cosine' or 'onecycle')
             scheduler_config_path: Path to scheduler config JSON file (for OneCycleLR)
+            use_lr_finder: Enable LR Finder to automatically determine optimal learning rates
+            lr_finder_config: LR Finder configuration dict (num_epochs, start_lr, end_lr, selection_method)
         """
         self.model_module = importlib.import_module(model_module_name)
         self.epochs = epochs
@@ -372,6 +751,15 @@ class CIFARTrainer:
         # Scheduler configuration
         self.scheduler_type = scheduler_type.lower()
         self.scheduler_config_path = scheduler_config_path
+
+        # LR Finder configuration
+        self.use_lr_finder = use_lr_finder
+        self.lr_finder_config = lr_finder_config or {
+            'num_epochs': 3,
+            'start_lr': 1e-6,
+            'end_lr': 1.0,
+            'selection_method': 'steepest_gradient'
+        }
 
         # HuggingFace configuration
         self.hf_token = hf_token
@@ -879,6 +1267,86 @@ class CIFARTrainer:
 
         plt.close()
 
+    def run_lr_finder(self):
+        """
+        Run the LR Finder to automatically determine optimal learning rates.
+
+        Returns:
+            dict: Dictionary with suggested LR values based on scheduler type
+        """
+        print("\n" + "="*70)
+        print("STARTING LR FINDER")
+        print("="*70)
+
+        # Create a clean data loader (no mixup, no label smoothing)
+        # We'll temporarily use the test transforms to get clean data
+        clean_dataset = datasets.CIFAR100(
+            '../data',
+            train=True,
+            download=False,
+            transform=self.test_transforms  # Use test transforms for clean data
+        )
+
+        # Only use pin_memory on CUDA devices
+        use_pin_memory = self.device.type == 'cuda'
+
+        clean_loader = torch.utils.data.DataLoader(
+            clean_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=use_pin_memory
+        )
+
+        # Create LR Finder with clean criterion (no label smoothing)
+        criterion = torch.nn.CrossEntropyLoss()
+        lr_finder = LRFinder(
+            model=self.model,
+            optimizer=self.optimizer,
+            criterion=criterion,
+            device=self.device,
+            data_loader=clean_loader
+        )
+
+        # Run range test
+        num_epochs = self.lr_finder_config.get('num_epochs', 3)
+        start_lr = self.lr_finder_config.get('start_lr', 1e-6)
+        end_lr = self.lr_finder_config.get('end_lr', 1.0)
+        selection_method = self.lr_finder_config.get('selection_method', 'steepest_gradient')
+
+        lr_finder.range_test(
+            start_lr=start_lr,
+            end_lr=end_lr,
+            num_epochs=num_epochs
+        )
+
+        # Get scheduler-specific LR suggestions
+        suggested_lrs = lr_finder.suggest_scheduler_lrs(
+            scheduler_type=self.scheduler_type,
+            method=selection_method
+        )
+
+        # Plot and save
+        plot_path = os.path.join(self.checkpoint_dir, 'lr_finder_plot.png')
+
+        if self.scheduler_type == 'onecycle':
+            lr_finder.plot(
+                save_path=plot_path,
+                max_lr=suggested_lrs.get('max_lr'),
+                base_lr=suggested_lrs.get('base_lr')
+            )
+        else:  # cosine
+            lr_finder.plot(
+                save_path=plot_path,
+                suggested_lr=suggested_lrs.get('initial_lr')
+            )
+
+        print(f"\n{'='*70}")
+        print(f"LR FINDER COMPLETED")
+        print(f"{'='*70}\n")
+
+        return suggested_lrs
+
     def run(self):
         """Run the complete training process for all epochs."""
         print(f"Training {self.model_module.__name__} for {self.epochs} epochs")
@@ -909,6 +1377,69 @@ class CIFARTrainer:
 
         # Print model summary before training
         self.print_model_summary()
+
+        # Run LR Finder if enabled
+        if self.use_lr_finder:
+            suggested_lrs = self.run_lr_finder()
+
+            # Update scheduler with found LRs
+            if suggested_lrs:
+                if self.scheduler_type == 'onecycle':
+                    max_lr = suggested_lrs.get('max_lr')
+                    base_lr = suggested_lrs.get('base_lr')
+
+                    if max_lr is not None and base_lr is not None:
+                        print(f"\n{'='*70}")
+                        print(f"UPDATING ONECYCLE SCHEDULER WITH LR FINDER RESULTS")
+                        print(f"{'='*70}")
+                        print(f"  Previous max_lr: {self.scheduler.max_lrs[0]:.6f}")
+                        print(f"  New max_lr:      {max_lr:.6f}")
+                        print(f"  New base_lr:     {base_lr:.6f}")
+                        print(f"  (base_lr will be set via div_factor = max_lr / base_lr)")
+                        print(f"{'='*70}\n")
+
+                        # Calculate div_factor from base_lr
+                        div_factor = max_lr / base_lr
+
+                        # Get current onecycle config
+                        onecycle_config = {
+                            'max_lr': max_lr,
+                            'div_factor': div_factor,
+                            'pct_start': self.scheduler.pct_start,
+                            'anneal_strategy': 'cos',
+                            'final_div_factor': self.scheduler.final_div_factor,
+                            'three_phase': self.scheduler.three_phase
+                        }
+
+                        # Recreate scheduler with new LR
+                        self.scheduler = self.model_module.get_scheduler(
+                            self.optimizer,
+                            self.train_loader,
+                            scheduler_type='onecycle',
+                            epochs=self.epochs,
+                            onecycle_config=onecycle_config
+                        )
+
+                else:  # cosine
+                    initial_lr = suggested_lrs.get('initial_lr')
+
+                    if initial_lr is not None:
+                        print(f"\n{'='*70}")
+                        print(f"UPDATING COSINE ANNEALING SCHEDULER WITH LR FINDER RESULTS")
+                        print(f"{'='*70}")
+                        print(f"  Previous initial LR: {self.optimizer.param_groups[0]['lr']:.6f}")
+                        print(f"  New initial LR:      {initial_lr:.6f}")
+                        print(f"{'='*70}\n")
+
+                        # Update optimizer LR
+                        for param_group in self.optimizer.param_groups:
+                            param_group['lr'] = initial_lr
+
+                        # Update warmup scheduler if using custom warmup
+                        if self.use_custom_warmup:
+                            self.warmup_scheduler = WarmupScheduler(
+                                self.optimizer, self.warmup_epochs, initial_lr * 0.1, initial_lr, len(self.train_loader)
+                            )
 
         patience = 15
         patience_counter = 0
@@ -989,11 +1520,28 @@ if __name__ == "__main__":
                        help='Learning rate scheduler type: cosine or onecycle (default: cosine)')
     parser.add_argument('--scheduler-config', type=str, default=None,
                        help='Path to scheduler config JSON file (for OneCycleLR, default: ./config.json)')
+    parser.add_argument('--lr-finder', action='store_true',
+                       help='Run LR Finder before training to automatically determine optimal learning rates')
     parser.add_argument('--hf-token', type=str, default=None,
                        help='HuggingFace API token for model upload')
     parser.add_argument('--hf-repo', type=str, default=None,
                        help='HuggingFace repository ID (e.g., username/repo-name)')
     args = parser.parse_args()
+
+    # Load LR Finder config from config.json if it exists
+    lr_finder_config = None
+    if args.lr_finder:
+        config_path = args.scheduler_config or './config.json'
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    config_data = json.load(f)
+                    if 'lr_finder' in config_data:
+                        lr_finder_config = config_data['lr_finder']
+                        print(f"✓ Loaded LR Finder config from: {config_path}")
+            except Exception as e:
+                print(f"⚠ Could not load LR Finder config: {e}")
+                print("  Using default LR Finder parameters")
 
     # Create trainer with selected model and run training
     trainer = CIFARTrainer(
@@ -1003,6 +1551,8 @@ if __name__ == "__main__":
         device=args.device,
         scheduler_type=args.scheduler,
         scheduler_config_path=args.scheduler_config,
+        use_lr_finder=args.lr_finder,
+        lr_finder_config=lr_finder_config,
         hf_token=args.hf_token,
         hf_repo_id=args.hf_repo
     )
