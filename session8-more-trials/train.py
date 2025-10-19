@@ -257,6 +257,38 @@ MIT
 # CIFAR Trainer Class
 # ------------------------------
 class CIFARTrainer:
+    def _get_next_checkpoint_folder(self):
+        """
+        Find the next available checkpoint folder in sequence.
+        Scans for existing checkpoint_N folders and returns the next number.
+
+        Returns:
+            str: Path to the next checkpoint folder (e.g., './checkpoint_3')
+        """
+        import re
+
+        # Get all directories in current path
+        existing_dirs = [d for d in os.listdir('.') if os.path.isdir(d)]
+
+        # Filter for checkpoint folders matching pattern checkpoint_N
+        checkpoint_pattern = re.compile(r'^checkpoint_(\d+)$')
+        checkpoint_numbers = []
+
+        for dirname in existing_dirs:
+            match = checkpoint_pattern.match(dirname)
+            if match:
+                checkpoint_numbers.append(int(match.group(1)))
+
+        # Find next available number
+        if checkpoint_numbers:
+            next_num = max(checkpoint_numbers) + 1
+        else:
+            next_num = 1
+
+        next_folder = f'./checkpoint_{next_num}'
+        print(f"📁 Creating checkpoint folder: {next_folder}")
+        return next_folder
+
     def __init__(self, model_module_name='model', epochs=100, batch_size=256,
                  use_mixup=True, mixup_alpha=0.2, label_smoothing=0.1,
                  use_amp=True, gradient_clip=1.0, warmup_epochs=5,
@@ -332,7 +364,7 @@ class CIFARTrainer:
         # Checkpoint tracking
         self.best_test_acc = 0.0
         self.best_epoch = 0
-        self.checkpoint_dir = './checkpoints'
+        self.checkpoint_dir = self._get_next_checkpoint_folder()
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
     def _setup_data(self):

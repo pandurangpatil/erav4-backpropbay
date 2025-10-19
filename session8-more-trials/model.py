@@ -23,7 +23,7 @@ class AlbumentationsTransforms:
             A.Affine(translate_percent={'x': (-0.0625, 0.0625), 'y': (-0.0625, 0.0625)},
                      scale=(0.9, 1.1), rotate=(-15, 15), p=0.5),
             A.CoarseDropout(num_holes_range=(1, 1), hole_height_range=(8, 8),
-                            hole_width_range=(8, 8), fill_value=0, p=0.5),  # Cutout
+                            hole_width_range=(8, 8), fill=128, p=0.5),  # Cutout
             A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.3),
             A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, val_shift_limit=10, p=0.3),
             A.Normalize(mean=mean, std=std),
