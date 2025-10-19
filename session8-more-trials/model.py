@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import transforms, datasets
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, OneCycleLR
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import numpy as np
@@ -149,11 +149,54 @@ def get_optimizer(model):
     """Get the optimizer for the model."""
     return optim.SGD(model.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-3)
 
-def get_scheduler(optimizer, train_loader):
-    """Get the learning rate scheduler."""
-    return CosineAnnealingWarmRestarts(
-        optimizer,
-        T_0=25,
-        T_mult=1,
-        eta_min=1e-4
-    )
+def get_scheduler(optimizer, train_loader, scheduler_type='cosine', epochs=100, onecycle_config=None):
+    """
+    Get the learning rate scheduler.
+
+    Args:
+        optimizer: The optimizer to schedule
+        train_loader: Training data loader (used to get steps_per_epoch)
+        scheduler_type: Type of scheduler ('cosine' or 'onecycle')
+        epochs: Total number of training epochs (used for OneCycleLR)
+        onecycle_config: Configuration dict for OneCycleLR parameters
+
+    Returns:
+        Learning rate scheduler instance
+    """
+    if scheduler_type == 'onecycle':
+        # Default OneCycleLR configuration
+        default_config = {
+            'max_lr': 0.1,
+            'pct_start': 0.3,
+            'anneal_strategy': 'cos',
+            'div_factor': 25.0,
+            'final_div_factor': 10000.0,
+            'three_phase': False
+        }
+
+        # Merge with provided config
+        if onecycle_config:
+            default_config.update(onecycle_config)
+
+        steps_per_epoch = len(train_loader)
+        total_steps = epochs * steps_per_epoch
+
+        return OneCycleLR(
+            optimizer,
+            max_lr=default_config['max_lr'],
+            total_steps=total_steps,
+            epochs=epochs,
+            steps_per_epoch=steps_per_epoch,
+            pct_start=default_config['pct_start'],
+            anneal_strategy=default_config['anneal_strategy'],
+            div_factor=default_config['div_factor'],
+            final_div_factor=default_config['final_div_factor'],
+            three_phase=default_config['three_phase']
+        )
+    else:  # Default to CosineAnnealingWarmRestarts
+        return CosineAnnealingWarmRestarts(
+            optimizer,
+            T_0=25,
+            T_mult=1,
+            eta_min=1e-4
+        )

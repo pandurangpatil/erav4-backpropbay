@@ -90,6 +90,45 @@ def detect_gpu_device(preferred_device=None):
 # ------------------------------
 # Helper Functions
 # ------------------------------
+def load_scheduler_config(config_path='./config.json'):
+    """
+    Load scheduler configuration from JSON file.
+
+    Args:
+        config_path: Path to the configuration JSON file
+
+    Returns:
+        dict: OneCycleLR configuration parameters, or None if file not found
+    """
+    if not os.path.exists(config_path):
+        print(f"⚠ Config file not found: {config_path}")
+        print("  Using default OneCycleLR parameters")
+        return None
+
+    try:
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
+
+        # Extract OneCycle scheduler config
+        if 'scheduler' in config_data and 'onecycle' in config_data['scheduler']:
+            onecycle_config = config_data['scheduler']['onecycle']
+            print(f"✓ Loaded OneCycleLR config from: {config_path}")
+            print(f"  Parameters: {onecycle_config}")
+            return onecycle_config
+        else:
+            print(f"⚠ No 'scheduler.onecycle' section found in {config_path}")
+            print("  Using default OneCycleLR parameters")
+            return None
+    except json.JSONDecodeError as e:
+        print(f"⚠ Error parsing JSON config file: {e}")
+        print("  Using default OneCycleLR parameters")
+        return None
+    except Exception as e:
+        print(f"⚠ Error loading config file: {e}")
+        print("  Using default OneCycleLR parameters")
+        return None
+
+
 def mixup_data(x, y, alpha=0.2, device=None):
     '''Returns mixed inputs, pairs of targets, and lambda'''
     if alpha > 0:
@@ -293,7 +332,7 @@ class CIFARTrainer:
                  use_mixup=True, mixup_alpha=0.2, label_smoothing=0.1,
                  use_amp=True, gradient_clip=1.0, warmup_epochs=5,
                  checkpoint_epochs=None, hf_token=None, hf_repo_id=None,
-                 device=None):
+                 device=None, scheduler_type='cosine', scheduler_config_path=None):
         """
         Initialize the CIFAR-100 trainer with advanced features.
 
@@ -311,6 +350,8 @@ class CIFARTrainer:
             hf_token: HuggingFace API token
             hf_repo_id: HuggingFace repository ID
             device: Device to use for training ('cuda', 'mps', 'cpu', or None for auto-detect)
+            scheduler_type: Learning rate scheduler type ('cosine' or 'onecycle')
+            scheduler_config_path: Path to scheduler config JSON file (for OneCycleLR)
         """
         self.model_module = importlib.import_module(model_module_name)
         self.epochs = epochs
@@ -328,6 +369,10 @@ class CIFARTrainer:
         self.warmup_epochs = warmup_epochs
         self.checkpoint_epochs = checkpoint_epochs or [10, 20, 25, 30, 40, 50, 60, 75, 90]
 
+        # Scheduler configuration
+        self.scheduler_type = scheduler_type.lower()
+        self.scheduler_config_path = scheduler_config_path
+
         # HuggingFace configuration
         self.hf_token = hf_token
         self.hf_repo_id = hf_repo_id
@@ -342,14 +387,35 @@ class CIFARTrainer:
         # Setup datasets and data loaders
         self._setup_data()
 
-        # Get optimizer and scheduler from model module
+        # Get optimizer from model module
         self.optimizer = self.model_module.get_optimizer(self.model)
-        self.scheduler = self.model_module.get_scheduler(self.optimizer, self.train_loader)
 
-        # Warmup scheduler
-        self.warmup_scheduler = WarmupScheduler(
-            self.optimizer, self.warmup_epochs, 0.01, 0.1, len(self.train_loader)
+        # Load scheduler configuration if using OneCycleLR
+        onecycle_config = None
+        if self.scheduler_type == 'onecycle':
+            if self.scheduler_config_path:
+                onecycle_config = load_scheduler_config(self.scheduler_config_path)
+            else:
+                # Try default location
+                onecycle_config = load_scheduler_config('./config.json')
+
+        # Get scheduler from model module with configuration
+        self.scheduler = self.model_module.get_scheduler(
+            self.optimizer,
+            self.train_loader,
+            scheduler_type=self.scheduler_type,
+            epochs=self.epochs,
+            onecycle_config=onecycle_config
         )
+
+        # Warmup scheduler (only used for CosineAnnealing, OneCycleLR has built-in warmup)
+        self.use_custom_warmup = (self.scheduler_type == 'cosine')
+        if self.use_custom_warmup:
+            self.warmup_scheduler = WarmupScheduler(
+                self.optimizer, self.warmup_epochs, 0.01, 0.1, len(self.train_loader)
+            )
+        else:
+            self.warmup_scheduler = None
 
         # Mixed precision scaler
         self.scaler = GradScaler() if self.use_amp else None
@@ -460,10 +526,16 @@ class CIFARTrainer:
                 self.optimizer.step()
 
             # Update learning rate
-            if self.warmup_scheduler.is_warmup():
-                self.warmup_scheduler.step()
-            else:
+            if self.scheduler_type == 'onecycle':
+                # OneCycleLR steps per batch
                 self.scheduler.step()
+            else:
+                # CosineAnnealing with custom warmup steps per epoch (handled later)
+                if self.use_custom_warmup and self.warmup_scheduler.is_warmup():
+                    self.warmup_scheduler.step()
+                elif not self.use_custom_warmup or not self.warmup_scheduler.is_warmup():
+                    # For cosine, step after epoch (not here)
+                    pass
 
             # Accuracy tracking
             _, pred = outputs.max(1)
@@ -562,6 +634,7 @@ class CIFARTrainer:
             'config': {
                 'model': 'WideResNet-28-10',
                 'batch_size': self.batch_size,
+                'scheduler_type': self.scheduler_type,
                 'mixup_alpha': self.mixup_alpha,
                 'label_smoothing': self.label_smoothing,
                 'weight_decay': 1e-3,
@@ -815,11 +888,16 @@ class CIFARTrainer:
         print(f"  - Dataset: CIFAR-100")
         print(f"  - Batch Size: {self.batch_size}")
         print(f"  - Epochs: {self.epochs}")
+        print(f"  - Scheduler: {self.scheduler_type.upper()}")
+        if self.scheduler_type == 'onecycle':
+            print(f"    • OneCycleLR config: {self.scheduler_config_path or 'defaults'}")
+        else:
+            print(f"    • CosineAnnealingWarmRestarts (T_0=25, eta_min=1e-4)")
+            print(f"    • Warmup Epochs: {self.warmup_epochs}")
         print(f"  - MixUp: {self.use_mixup} (alpha={self.mixup_alpha})")
         print(f"  - Label Smoothing: {self.label_smoothing}")
         print(f"  - Mixed Precision: {self.use_amp}")
         print(f"  - Gradient Clipping: {self.gradient_clip}")
-        print(f"  - Warmup Epochs: {self.warmup_epochs}")
         print(f"  - Checkpoint Epochs: {self.checkpoint_epochs}")
         if self.hf_repo_id and self.hf_token:
             print(f"  - HuggingFace Repo: {self.hf_repo_id}")
@@ -838,6 +916,13 @@ class CIFARTrainer:
         for epoch in range(1, self.epochs + 1):
             train_loss, train_acc = self.train(epoch)
             test_loss, test_acc = self.test()
+
+            # Step scheduler after epoch for CosineAnnealing (OneCycle steps per batch)
+            if self.scheduler_type == 'cosine':
+                if self.use_custom_warmup and not self.warmup_scheduler.is_warmup():
+                    self.scheduler.step()
+                elif not self.use_custom_warmup:
+                    self.scheduler.step()
 
             # Store metrics
             self.train_losses.append(train_loss)
@@ -900,6 +985,10 @@ if __name__ == "__main__":
                        help='Batch size for training (default: 256)')
     parser.add_argument('--device', type=str, default=None,
                        help='Device to use for training: cuda, cuda:0, mps, cpu (default: auto-detect)')
+    parser.add_argument('--scheduler', type=str, default='cosine', choices=['cosine', 'onecycle'],
+                       help='Learning rate scheduler type: cosine or onecycle (default: cosine)')
+    parser.add_argument('--scheduler-config', type=str, default=None,
+                       help='Path to scheduler config JSON file (for OneCycleLR, default: ./config.json)')
     parser.add_argument('--hf-token', type=str, default=None,
                        help='HuggingFace API token for model upload')
     parser.add_argument('--hf-repo', type=str, default=None,
@@ -912,6 +1001,8 @@ if __name__ == "__main__":
         epochs=args.epochs,
         batch_size=args.batch_size,
         device=args.device,
+        scheduler_type=args.scheduler,
+        scheduler_config_path=args.scheduler_config,
         hf_token=args.hf_token,
         hf_repo_id=args.hf_repo
     )

@@ -107,6 +107,127 @@ pip install -r requirements.txt
 pip install torch torchvision torchsummary albumentations numpy tqdm matplotlib plotille huggingface_hub
 ```
 
+## Learning Rate Schedulers
+
+This implementation supports two state-of-the-art learning rate schedulers:
+
+### Scheduler Options
+
+#### 1. CosineAnnealingWarmRestarts (Default)
+- **Type**: Cosine annealing with warm restarts
+- **Configuration**: T_0=25, T_mult=1, eta_min=1e-4
+- **Warmup**: Custom 5-epoch linear warmup (0.01 → 0.1)
+- **Best for**: Stable, predictable training with periodic LR resets
+
+#### 2. OneCycleLR
+- **Type**: One Cycle Policy (Smith, 2018)
+- **Configuration**: Loaded from `config.json`
+- **Warmup**: Built-in (no separate warmup phase needed)
+- **Best for**: Fast convergence, super-convergence training
+
+### Scheduler Comparison
+
+| Feature | CosineAnnealingWarmRestarts | OneCycleLR |
+|---------|----------------------------|------------|
+| **Learning Rate Pattern** | Cosine decay with restarts | Single cycle (warmup → decay) |
+| **Warmup** | External (5 epochs) | Built-in (configurable %) |
+| **Max LR** | 0.1 | Configurable (default: 0.1) |
+| **Min LR** | 1e-4 | initial_lr/final_div_factor |
+| **Training Speed** | Moderate | Fast (super-convergence) |
+| **Stability** | Very stable | Can be aggressive |
+| **Configuration** | Hardcoded | JSON file |
+| **When to Use** | Research, benchmarking | Fast prototyping, competitions |
+
+### OneCycleLR Configuration
+
+When using `--scheduler onecycle`, the scheduler reads parameters from a JSON configuration file.
+
+#### Configuration File Format
+
+Create a `config.json` file (or use `config.json.example` as template):
+
+```json
+{
+  "scheduler": {
+    "onecycle": {
+      "max_lr": 0.1,
+      "pct_start": 0.3,
+      "anneal_strategy": "cos",
+      "div_factor": 25.0,
+      "final_div_factor": 10000.0,
+      "three_phase": false
+    }
+  }
+}
+```
+
+#### OneCycleLR Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_lr` | 0.1 | Maximum learning rate (peak of the cycle) |
+| `pct_start` | 0.3 | Percentage of cycle for warmup (30% = warmup phase) |
+| `anneal_strategy` | "cos" | Annealing strategy: "cos" (cosine) or "linear" |
+| `div_factor` | 25.0 | Initial LR = max_lr / div_factor (e.g., 0.1/25 = 0.004) |
+| `final_div_factor` | 10000.0 | Final LR = initial_lr / final_div_factor |
+| `three_phase` | false | Use three phases (warmup, anneal, final) vs two phases |
+
+#### Recommended OneCycle Configurations
+
+**Aggressive Training** (fast convergence):
+```json
+{
+  "scheduler": {
+    "onecycle": {
+      "max_lr": 0.2,
+      "pct_start": 0.2,
+      "div_factor": 10.0
+    }
+  }
+}
+```
+
+**Conservative Training** (stable, safer):
+```json
+{
+  "scheduler": {
+    "onecycle": {
+      "max_lr": 0.05,
+      "pct_start": 0.4,
+      "div_factor": 50.0
+    }
+  }
+}
+```
+
+**Default CIFAR-100** (balanced):
+```json
+{
+  "scheduler": {
+    "onecycle": {
+      "max_lr": 0.1,
+      "pct_start": 0.3,
+      "div_factor": 25.0
+    }
+  }
+}
+```
+
+### Configuration File Location
+
+The configuration file can be specified in two ways:
+
+1. **Default location**: Place `config.json` in the same directory as `train.py`
+2. **Custom path**: Use `--scheduler-config` to specify a different path
+
+```bash
+# Use default config.json in current directory
+python train.py --scheduler onecycle
+
+# Use custom config file path
+python train.py --scheduler onecycle --scheduler-config /path/to/my_config.json
+```
+
 ## Usage
 
 ### 1. Command-Line Training
@@ -155,16 +276,37 @@ python train.py \
   --hf-repo username/cifar100-resnet50
 ```
 
+#### Training with Different Schedulers
+
+```bash
+# Default: CosineAnnealingWarmRestarts
+python train.py --model model --epochs 100
+
+# Explicitly specify CosineAnnealing
+python train.py --scheduler cosine --epochs 100
+
+# Use OneCycleLR with default config.json
+python train.py --scheduler onecycle --epochs 100
+
+# Use OneCycleLR with custom config file
+python train.py --scheduler onecycle --scheduler-config ./my_onecycle_config.json --epochs 100
+
+# ResNet50 with OneCycleLR
+python train.py --model resnet50 --scheduler onecycle --epochs 100
+```
+
 #### All Command-Line Options
 
 ```bash
 python train.py \
-  --model MODEL_MODULE_NAME \    # Model: 'model' (WideResNet) or 'resnet50' (default: 'model')
-  --epochs NUM_EPOCHS \           # Number of training epochs (default: 100)
-  --batch-size BATCH_SIZE \       # Batch size (default: 256)
-  --device DEVICE \               # Device: 'cuda', 'mps', 'cpu', or None for auto-detect (default: None)
-  --hf-token HF_TOKEN \           # HuggingFace API token (optional)
-  --hf-repo HF_REPO_ID            # HuggingFace repo ID like 'username/repo' (optional)
+  --model MODEL_MODULE_NAME \       # Model: 'model' (WideResNet) or 'resnet50' (default: 'model')
+  --epochs NUM_EPOCHS \             # Number of training epochs (default: 100)
+  --batch-size BATCH_SIZE \         # Batch size (default: 256)
+  --device DEVICE \                 # Device: 'cuda', 'mps', 'cpu', or None for auto-detect (default: None)
+  --scheduler SCHEDULER_TYPE \      # Scheduler: 'cosine' or 'onecycle' (default: 'cosine')
+  --scheduler-config CONFIG_PATH \  # Path to scheduler config JSON (for onecycle, default: ./config.json)
+  --hf-token HF_TOKEN \             # HuggingFace API token (optional)
+  --hf-repo HF_REPO_ID              # HuggingFace repo ID like 'username/repo' (optional)
 ```
 
 ### 2. Google Colab Training
@@ -187,28 +329,47 @@ Open `train.ipynb` in Google Colab:
 ```python
 from train import CIFARTrainer
 
-# Train WideResNet-28-10
+# Train WideResNet-28-10 with CosineAnnealing (default)
 trainer = CIFARTrainer(
     model_module_name='model',       # WideResNet-28-10
     epochs=100,                      # Number of epochs
     batch_size=256,                  # Batch size
+    scheduler_type='cosine',         # CosineAnnealingWarmRestarts (default)
     use_mixup=True,                  # Enable MixUp augmentation
     mixup_alpha=0.2,                 # MixUp alpha parameter
     label_smoothing=0.1,             # Label smoothing factor
     use_amp=True,                    # Use automatic mixed precision
     gradient_clip=1.0,               # Gradient clipping max norm
-    warmup_epochs=5,                 # Number of warmup epochs
+    warmup_epochs=5,                 # Number of warmup epochs (for cosine)
     checkpoint_epochs=[10, 25, 50, 75],  # Epochs to save checkpoints
     hf_token='your_token',           # HuggingFace token (optional)
     hf_repo_id='username/repo'       # HuggingFace repo ID (optional)
 )
 best_accuracy = trainer.run()
 
-# Or train ResNet50
+# Train with OneCycleLR scheduler
+trainer_onecycle = CIFARTrainer(
+    model_module_name='model',
+    epochs=100,
+    batch_size=256,
+    scheduler_type='onecycle',       # Use OneCycleLR
+    scheduler_config_path='./config.json',  # Path to OneCycle config
+    use_mixup=True,
+    label_smoothing=0.1,
+    use_amp=True,
+    gradient_clip=1.0,
+    checkpoint_epochs=[10, 25, 50, 75],
+    hf_token='your_token',
+    hf_repo_id='username/repo'
+)
+best_accuracy = trainer_onecycle.run()
+
+# Or train ResNet50 with OneCycleLR
 trainer_resnet = CIFARTrainer(
     model_module_name='resnet50',    # ResNet50
     epochs=100,
     batch_size=256,
+    scheduler_type='onecycle',       # OneCycleLR
     # ... other parameters same as above
 )
 best_accuracy = trainer_resnet.run()
@@ -225,15 +386,18 @@ print(f"Best test accuracy: {best_accuracy:.2f}%")
 | `model_module_name` | str | `'model'` | Name of the module containing the model |
 | `epochs` | int | `100` | Number of training epochs |
 | `batch_size` | int | `256` | Batch size for training and testing |
+| `scheduler_type` | str | `'cosine'` | Learning rate scheduler type: 'cosine' or 'onecycle' |
+| `scheduler_config_path` | str | `None` | Path to scheduler config JSON (for OneCycleLR) |
 | `use_mixup` | bool | `True` | Enable MixUp data augmentation |
 | `mixup_alpha` | float | `0.2` | MixUp alpha parameter (beta distribution) |
 | `label_smoothing` | float | `0.1` | Label smoothing factor (0.0 = no smoothing) |
 | `use_amp` | bool | `True` | Use automatic mixed precision training |
 | `gradient_clip` | float | `1.0` | Maximum gradient norm for clipping |
-| `warmup_epochs` | int | `5` | Number of warmup epochs (0.01 → 0.1) |
+| `warmup_epochs` | int | `5` | Number of warmup epochs (only for cosine scheduler) |
 | `checkpoint_epochs` | list | `[10, 20, 25, 30, 40, 50, 60, 75, 90]` | Epochs to save checkpoints |
 | `hf_token` | str | `None` | HuggingFace API token for model upload |
 | `hf_repo_id` | str | `None` | HuggingFace repository ID (e.g., 'username/repo-name') |
+| `device` | str | `None` | Device to use: 'cuda', 'mps', 'cpu', or None for auto-detect |
 
 ### Default Training Configuration
 
@@ -245,12 +409,20 @@ optimizer = SGD(
     weight_decay=1e-3     # L2 regularization
 )
 
-# Learning Rate Schedule
+# Learning Rate Schedule (Scheduler: CosineAnnealingWarmRestarts - default)
 # 1. Warmup: 5 epochs (0.01 → 0.1)
 # 2. Cosine Annealing with Warm Restarts
 #    - T_0 = 25 (first cycle length)
 #    - T_mult = 1 (cycle length stays same)
 #    - eta_min = 1e-4 (minimum LR)
+
+# Learning Rate Schedule (Scheduler: OneCycleLR - optional)
+# 1. Single cycle over all epochs
+# 2. Warmup phase: 30% of training (configurable via pct_start)
+# 3. Annealing phase: 70% of training
+# 4. max_lr: 0.1 (configurable via config.json)
+# 5. Initial LR: max_lr / div_factor
+# 6. Final LR: initial_lr / final_div_factor
 
 # Early Stopping
 patience = 15  # Stop if no improvement for 15 epochs
@@ -524,6 +696,7 @@ session8-more-trials/
 ├── resnet50.py           # ResNet50 architecture and transforms (custom implementation)
 ├── train.py              # CIFARTrainer class and training logic
 ├── train.ipynb           # Google Colab training notebook
+├── config.json.example   # Example OneCycleLR scheduler configuration
 ├── requirements.txt      # Python dependencies
 ├── README.md             # This file
 └── checkpoint_*/         # Training outputs (created automatically per run)
@@ -551,14 +724,21 @@ session8-more-trials/
 - Same optimizer and scheduler configuration as WideResNet
 - Compatible with the same training pipeline
 
+**`config.json.example`**:
+- Example configuration file for OneCycleLR scheduler
+- Includes parameter descriptions and usage notes
+- Recommended configurations for different training scenarios
+- Copy to `config.json` and customize as needed
+
 **`train.py`**:
 - `CIFARTrainer` class with all training logic
 - MixUp augmentation implementation
-- WarmupScheduler for learning rate warmup
+- WarmupScheduler for learning rate warmup (CosineAnnealing only)
+- Scheduler configuration loading and management
 - Checkpoint saving and loading
 - HuggingFace Hub integration
 - Visualization and plotting functions
-- Command-line interface
+- Command-line interface with scheduler selection
 
 **`train.ipynb`**:
 - Google Colab-ready notebook
@@ -729,7 +909,68 @@ trainer = CIFARTrainer(
 )
 ```
 
+## Scheduler Selection Guidelines
+
+### When to Use CosineAnnealingWarmRestarts
+
+**Advantages**:
+- Very stable and predictable
+- Periodic learning rate resets help escape local minima
+- Well-tested on CIFAR-100
+- Good for research and reproducibility
+
+**Use when**:
+- You want stable, predictable training
+- Reproducing research results
+- Don't want to tune many hyperparameters
+- Training for many epochs (100+)
+
+### When to Use OneCycleLR
+
+**Advantages**:
+- Often achieves faster convergence
+- Can reach higher accuracy with fewer epochs
+- Super-convergence possible with optimal settings
+- Great for competitions and fast prototyping
+
+**Use when**:
+- You need fast results
+- Willing to tune hyperparameters (max_lr, pct_start)
+- Training for fewer epochs (30-60)
+- Have time for experimentation
+
+**Tips for OneCycleLR**:
+1. Start with default config and adjust based on results
+2. If training is unstable, reduce `max_lr` or increase `div_factor`
+3. If convergence is slow, try increasing `max_lr` carefully
+4. Adjust `pct_start` based on dataset size (larger = more warmup)
+
 ## Troubleshooting
+
+### Issue: OneCycleLR config file not found
+
+**Solution**: Create `config.json` in the same directory as `train.py`:
+```bash
+# Copy the example file
+cp config.json.example config.json
+
+# Or specify custom path
+python train.py --scheduler onecycle --scheduler-config /path/to/config.json
+```
+
+### Issue: Training unstable with OneCycleLR
+
+**Solution**: Reduce max_lr or increase div_factor in config.json:
+```json
+{
+  "scheduler": {
+    "onecycle": {
+      "max_lr": 0.05,        // Reduced from 0.1
+      "div_factor": 50.0     // Increased from 25.0
+    }
+  }
+}
+```
 
 ### Issue: "CUDA out of memory"
 
@@ -821,6 +1062,7 @@ MIT License - see LICENSE file for details
 - **WideResNet**: [Wide Residual Networks](https://arxiv.org/abs/1605.07146) by Zagoruyko & Komodakis
 - **MixUp**: [mixup: Beyond Empirical Risk Minimization](https://arxiv.org/abs/1710.09412) by Zhang et al.
 - **Cutout**: [Improved Regularization of Convolutional Neural Networks with Cutout](https://arxiv.org/abs/1708.04552) by DeVries & Taylor
+- **OneCycleLR**: [Super-Convergence: Very Fast Training of Neural Networks Using Large Learning Rates](https://arxiv.org/abs/1708.07120) by Smith, 2018
 - **CIFAR-100**: [Learning Multiple Layers of Features from Tiny Images](https://www.cs.toronto.edu/~kriz/learning-features-2009-TR.pdf) by Krizhevsky
 
 ## Support
