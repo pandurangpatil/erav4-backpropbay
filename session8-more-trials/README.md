@@ -1,10 +1,13 @@
-# CIFAR-100 Training with WideResNet-28-10
+# CIFAR-100 Training with WideResNet-28-10 and ResNet50
 
-A comprehensive PyTorch implementation for training WideResNet-28-10 on CIFAR-100 dataset with state-of-the-art training techniques including MixUp augmentation, label smoothing, mixed precision training, and automatic HuggingFace Hub integration.
+A comprehensive PyTorch implementation for training WideResNet-28-10 and ResNet50 on CIFAR-100 dataset with state-of-the-art training techniques including MixUp augmentation, label smoothing, mixed precision training, and automatic HuggingFace Hub integration.
 
 ## Features
 
-- **Advanced Model Architecture**: WideResNet-28-10 with 36.5M parameters
+- **Multiple Model Architectures**:
+  - WideResNet-28-10 with 36.5M parameters
+  - ResNet50 with 23.7M parameters (custom implementation)
+- **CLI Model Selection**: Choose your model via command-line argument
 - **State-of-the-art Augmentation**: Albumentations-based transforms with Cutout, ColorJitter, and geometric transforms
 - **MixUp Augmentation**: Data mixing with configurable alpha parameter
 - **Label Smoothing**: Reduces overfitting and improves generalization
@@ -33,6 +36,51 @@ A comprehensive PyTorch implementation for training WideResNet-28-10 on CIFAR-10
 - **NetworkBlock**: Stack of basic blocks with configurable depth
 - **Global Average Pooling**: Reduces spatial dimensions before classification
 - **Fully Connected Layer**: Final classification layer
+
+### ResNet50
+
+- **Architecture**: Deep Residual Network with Bottleneck blocks
+- **Depth**: 50 layers
+- **Parameters**: ~23.7M
+- **Input Size**: 32×32×3 (CIFAR-100 images, adapted from ImageNet)
+- **Output**: 100 classes
+- **Layer Structure**: [3, 4, 6, 3] blocks per stage
+
+**Components**:
+- **Bottleneck Block**: 1×1 → 3×3 → 1×1 convolution with expansion factor 4
+- **Initial Conv**: 3×3 conv (adapted for CIFAR, not 7×7 as in ImageNet)
+- **4 Residual Stages**: Progressive feature extraction with downsampling
+- **Adaptive Average Pooling**: Reduces spatial dimensions before classification
+- **Fully Connected Layer**: Final classification layer
+
+**CIFAR Adaptations**:
+- Replaced 7×7 conv (stride 2) with 3×3 conv (stride 1)
+- Removed max pooling layer (too aggressive for 32×32 images)
+- Optimized for smaller input resolution
+
+### Model Comparison
+
+| Feature | WideResNet-28-10 | ResNet50 |
+|---------|------------------|----------|
+| **Parameters** | 36.5M | 23.7M |
+| **Depth** | 28 layers | 50 layers |
+| **Width** | Very wide (10×) | Standard bottleneck |
+| **Block Type** | BasicBlock with dropout | Bottleneck (1×1→3×3→1×1) |
+| **Memory Usage** | Higher | Lower |
+| **Training Speed** | Slower | Faster |
+| **Typical CIFAR-100 Accuracy** | 70-74% | 68-72% |
+
+**When to use WideResNet-28-10**:
+- Maximum accuracy is the priority
+- Sufficient GPU memory available (8GB+)
+- Not concerned about model size
+- Research and benchmarking
+
+**When to use ResNet50**:
+- Need faster training/inference
+- Limited GPU memory (4-6GB)
+- Want smaller model size for deployment
+- Good balance of accuracy and efficiency
 
 ## Installation
 
@@ -63,35 +111,58 @@ pip install torch torchvision torchsummary albumentations numpy tqdm matplotlib 
 
 ### 1. Command-Line Training
 
-#### Basic Training (without HuggingFace upload)
+#### Basic Training with WideResNet (default)
 
 ```bash
 python train.py
+# or explicitly specify
+python train.py --model model
+```
+
+#### Train with ResNet50
+
+```bash
+python train.py --model resnet50
 ```
 
 #### Training with Custom Parameters
 
 ```bash
-python train.py --epochs 100 --batch-size 256
+# WideResNet with custom parameters
+python train.py --model model --epochs 100 --batch-size 256
+
+# ResNet50 with custom parameters
+python train.py --model resnet50 --epochs 100 --batch-size 256
 ```
 
 #### Training with HuggingFace Upload
 
 ```bash
+# WideResNet
 python train.py \
+  --model model \
   --epochs 100 \
   --batch-size 256 \
   --hf-token YOUR_HUGGINGFACE_TOKEN \
   --hf-repo username/cifar100-wideresnet
+
+# ResNet50
+python train.py \
+  --model resnet50 \
+  --epochs 100 \
+  --batch-size 256 \
+  --hf-token YOUR_HUGGINGFACE_TOKEN \
+  --hf-repo username/cifar100-resnet50
 ```
 
 #### All Command-Line Options
 
 ```bash
 python train.py \
-  --model MODEL_MODULE_NAME \    # Model module to use (default: 'model')
+  --model MODEL_MODULE_NAME \    # Model: 'model' (WideResNet) or 'resnet50' (default: 'model')
   --epochs NUM_EPOCHS \           # Number of training epochs (default: 100)
   --batch-size BATCH_SIZE \       # Batch size (default: 256)
+  --device DEVICE \               # Device: 'cuda', 'mps', 'cpu', or None for auto-detect (default: None)
   --hf-token HF_TOKEN \           # HuggingFace API token (optional)
   --hf-repo HF_REPO_ID            # HuggingFace repo ID like 'username/repo' (optional)
 ```
@@ -116,9 +187,9 @@ Open `train.ipynb` in Google Colab:
 ```python
 from train import CIFARTrainer
 
-# Create trainer with custom configuration
+# Train WideResNet-28-10
 trainer = CIFARTrainer(
-    model_module_name='model',       # Model module name
+    model_module_name='model',       # WideResNet-28-10
     epochs=100,                      # Number of epochs
     batch_size=256,                  # Batch size
     use_mixup=True,                  # Enable MixUp augmentation
@@ -131,9 +202,16 @@ trainer = CIFARTrainer(
     hf_token='your_token',           # HuggingFace token (optional)
     hf_repo_id='username/repo'       # HuggingFace repo ID (optional)
 )
-
-# Run training
 best_accuracy = trainer.run()
+
+# Or train ResNet50
+trainer_resnet = CIFARTrainer(
+    model_module_name='resnet50',    # ResNet50
+    epochs=100,
+    batch_size=256,
+    # ... other parameters same as above
+)
+best_accuracy = trainer_resnet.run()
 
 print(f"Best test accuracy: {best_accuracy:.2f}%")
 ```
@@ -332,12 +410,15 @@ During training, you'll see:
 ### Example 1: Quick Start
 
 ```bash
-# Train with defaults (no HuggingFace upload)
+# Train WideResNet with defaults (no HuggingFace upload)
 python train.py
+
+# Train ResNet50 with defaults
+python train.py --model resnet50
 
 # Expected output:
 # - 100 epochs of training
-# - Checkpoints in ./checkpoints/
+# - Checkpoints in ./checkpoint_N/
 # - Training curves and metrics
 # - Best model saved
 ```
@@ -383,13 +464,17 @@ best_acc = trainer.run()
 ```python
 import torch
 from model import WideResNet
+from resnet50 import ResNet50
 
-# Load checkpoint
-checkpoint = torch.load('./checkpoints/checkpoint_epoch50.pth')
-
-# Create model and load weights
+# Load WideResNet checkpoint
+checkpoint = torch.load('./checkpoint_1/checkpoint_epoch50.pth')
 model = WideResNet(depth=28, widen_factor=10, num_classes=100)
 model.load_state_dict(checkpoint['model_state_dict'])
+
+# Or load ResNet50 checkpoint
+checkpoint_resnet = torch.load('./checkpoint_2/checkpoint_epoch50.pth')
+model_resnet = ResNet50(num_classes=100)
+model_resnet.load_state_dict(checkpoint_resnet['model_state_dict'])
 
 # Check checkpoint info
 print(f"Epoch: {checkpoint['epoch']}")
@@ -403,20 +488,27 @@ print(f"Timestamp: {checkpoint['timestamp']}")
 import torch
 from huggingface_hub import hf_hub_download
 from model import WideResNet
+from resnet50 import ResNet50
 
-# Download model from HuggingFace
+# Download WideResNet from HuggingFace
 checkpoint_path = hf_hub_download(
     repo_id="username/cifar100-wideresnet",
     filename="best_model.pth"
 )
-
-# Load checkpoint
 checkpoint = torch.load(checkpoint_path, map_location='cpu')
-
-# Create and load model
 model = WideResNet(depth=28, widen_factor=10, num_classes=100)
 model.load_state_dict(checkpoint['model_state_dict'])
 model.eval()
+
+# Or download ResNet50 from HuggingFace
+checkpoint_path_resnet = hf_hub_download(
+    repo_id="username/cifar100-resnet50",
+    filename="best_model.pth"
+)
+checkpoint_resnet = torch.load(checkpoint_path_resnet, map_location='cpu')
+model_resnet = ResNet50(num_classes=100)
+model_resnet.load_state_dict(checkpoint_resnet['model_state_dict'])
+model_resnet.eval()
 
 # Use for inference
 with torch.no_grad():
@@ -429,11 +521,12 @@ with torch.no_grad():
 ```
 session8-more-trials/
 ├── model.py              # WideResNet-28-10 architecture and transforms
+├── resnet50.py           # ResNet50 architecture and transforms (custom implementation)
 ├── train.py              # CIFARTrainer class and training logic
 ├── train.ipynb           # Google Colab training notebook
 ├── requirements.txt      # Python dependencies
 ├── README.md             # This file
-└── checkpoints/          # Training outputs (created automatically)
+└── checkpoint_*/         # Training outputs (created automatically per run)
     ├── best_model.pth
     ├── checkpoint_*.pth
     ├── metrics.json
@@ -450,6 +543,13 @@ session8-more-trials/
 - CIFAR-100 normalization parameters
 - Optimizer configuration (SGD with momentum and weight decay)
 - Scheduler configuration (CosineAnnealingWarmRestarts)
+
+**`resnet50.py`**:
+- ResNet50 architecture (Bottleneck, ResNet50) - custom implementation from scratch
+- Same Albumentations transforms as WideResNet
+- CIFAR-100 optimized (3×3 initial conv, no max pooling)
+- Same optimizer and scheduler configuration as WideResNet
+- Compatible with the same training pipeline
 
 **`train.py`**:
 - `CIFARTrainer` class with all training logic
@@ -717,6 +817,7 @@ MIT License - see LICENSE file for details
 
 ## Acknowledgments
 
+- **ResNet**: [Deep Residual Learning for Image Recognition](https://arxiv.org/abs/1512.03385) by He et al.
 - **WideResNet**: [Wide Residual Networks](https://arxiv.org/abs/1605.07146) by Zagoruyko & Komodakis
 - **MixUp**: [mixup: Beyond Empirical Risk Minimization](https://arxiv.org/abs/1710.09412) by Zhang et al.
 - **Cutout**: [Improved Regularization of Convolutional Neural Networks with Cutout](https://arxiv.org/abs/1708.04552) by DeVries & Taylor
