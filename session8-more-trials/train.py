@@ -787,6 +787,9 @@ class CIFARTrainer:
                 # Try default location
                 onecycle_config = load_scheduler_config('./config.json')
 
+        # Store onecycle config for later use (e.g., when recreating scheduler after LR finder)
+        self.onecycle_config = onecycle_config
+
         # Get scheduler from model module with configuration
         self.scheduler = self.model_module.get_scheduler(
             self.optimizer,
@@ -1392,7 +1395,6 @@ class CIFARTrainer:
                         print(f"\n{'='*70}")
                         print(f"UPDATING ONECYCLE SCHEDULER WITH LR FINDER RESULTS")
                         print(f"{'='*70}")
-                        print(f"  Previous max_lr: {self.scheduler.max_lrs[0]:.6f}")
                         print(f"  New max_lr:      {max_lr:.6f}")
                         print(f"  New base_lr:     {base_lr:.6f}")
                         print(f"  (base_lr will be set via div_factor = max_lr / base_lr)")
@@ -1401,15 +1403,27 @@ class CIFARTrainer:
                         # Calculate div_factor from base_lr
                         div_factor = max_lr / base_lr
 
-                        # Get current onecycle config
-                        onecycle_config = {
-                            'max_lr': max_lr,
-                            'div_factor': div_factor,
-                            'pct_start': self.scheduler.pct_start,
-                            'anneal_strategy': 'cos',
-                            'final_div_factor': self.scheduler.final_div_factor,
-                            'three_phase': self.scheduler.three_phase
-                        }
+                        # Get current onecycle config from stored config
+                        # Use stored values or defaults if config wasn't stored
+                        if self.onecycle_config:
+                            onecycle_config = {
+                                'max_lr': max_lr,
+                                'div_factor': div_factor,
+                                'pct_start': self.onecycle_config.get('pct_start', 0.3),
+                                'anneal_strategy': self.onecycle_config.get('anneal_strategy', 'cos'),
+                                'final_div_factor': self.onecycle_config.get('final_div_factor', 10000.0),
+                                'three_phase': self.onecycle_config.get('three_phase', False)
+                            }
+                        else:
+                            # Fallback to defaults if no config was stored
+                            onecycle_config = {
+                                'max_lr': max_lr,
+                                'div_factor': div_factor,
+                                'pct_start': 0.3,
+                                'anneal_strategy': 'cos',
+                                'final_div_factor': 10000.0,
+                                'three_phase': False
+                            }
 
                         # Recreate scheduler with new LR
                         self.scheduler = self.model_module.get_scheduler(
@@ -1419,6 +1433,9 @@ class CIFARTrainer:
                             epochs=self.epochs,
                             onecycle_config=onecycle_config
                         )
+
+                        # Update stored config with new values
+                        self.onecycle_config = onecycle_config
 
                 else:  # cosine
                     initial_lr = suggested_lrs.get('initial_lr')
