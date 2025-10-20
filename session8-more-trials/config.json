@@ -13,6 +13,11 @@
       "div_factor": 25.0,
       "final_div_factor": 10000.0,
       "three_phase": false
+    },
+    "cosine": {
+      "T_0": 25,
+      "T_mult": 1,
+      "eta_min": 1e-4
     }
   },
   "lr_finder_description": {
