@@ -6,7 +6,7 @@ This guide explains the new modular structure of the CIFAR training codebase.
 
 ```
 session8-more-trials/
-├── datasets/              # Dataset management
+├── data_loaders/          # Dataset management
 │   ├── __init__.py       # Dataset factory: get_dataset()
 │   ├── base.py           # BaseDataset abstract class
 │   ├── cifar100.py       # CIFAR100 implementation
@@ -83,7 +83,7 @@ python train.py \
 ### 1. Dataset Module
 
 ```python
-from datasets import get_dataset, get_dataset_info
+from data_loaders import get_dataset, get_dataset_info
 
 # Get dataset info without loading
 info = get_dataset_info('cifar100')
@@ -183,7 +183,7 @@ uploader.upload_checkpoint_files('./checkpoint_1')
 
 ### Adding a New Dataset
 
-1. Create `datasets/cifar10.py`:
+1. Create `data_loaders/cifar10.py`:
 
 ```python
 from .base import BaseDataset
@@ -204,7 +204,7 @@ class CIFAR10Dataset(BaseDataset):
     # Implement required methods...
 ```
 
-2. Register in `datasets/__init__.py`:
+2. Register in `data_loaders/__init__.py`:
 
 ```python
 from .cifar10 import CIFAR10Dataset
@@ -283,7 +283,7 @@ model = Net()
 ```python
 from models import get_model
 from training import get_optimizer, get_scheduler
-from datasets import get_dataset
+from data_loaders import get_dataset
 
 model = get_model('wideresnet28-10')
 optimizer = get_optimizer('sgd', model)
@@ -375,7 +375,7 @@ python train.py \
 
 ```python
 # Test dataset
-from datasets import get_dataset
+from data_loaders import get_dataset
 ds = get_dataset('cifar100')
 print(len(ds))  # 50000
 
@@ -402,7 +402,7 @@ print(device)  # cuda/mps/cpu
 
 ## Further Reading
 
-- Dataset implementation: See `datasets/cifar100.py`
+- Dataset implementation: See `data_loaders/cifar100.py`
 - Model architectures: See `models/`
 - Training loop: See `training/trainer.py`
 - LR Finder details: See `training/lr_finder.py`

@@ -10,7 +10,7 @@ import json
 import os
 import torch.utils.data
 
-from datasets import get_dataset, get_dataset_info
+from data_loaders import get_dataset, get_dataset_info
 from models import get_model
 from training import get_optimizer, get_scheduler, Trainer
 from utils import get_device, CheckpointManager, MetricsTracker, HuggingFaceUploader

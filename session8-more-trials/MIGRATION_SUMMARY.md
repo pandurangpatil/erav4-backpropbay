@@ -10,7 +10,7 @@ Successfully refactored the monolithic CIFAR training codebase into a clean, mod
 
 ```
 session8-more-trials/
-├── datasets/              # ✨ NEW: Dataset management
+├── data_loaders/          # ✨ NEW: Dataset management
 │   ├── __init__.py       # Factory pattern for datasets
 │   ├── base.py           # Abstract base class
 │   ├── cifar100.py       # CIFAR-100 implementation
@@ -47,11 +47,11 @@ session8-more-trials/
 
 ### 2. Files Created (18 new files)
 
-**Datasets Module (4 files):**
-- `datasets/__init__.py` - Dataset factory with `get_dataset()` function
-- `datasets/base.py` - BaseDataset abstract class
-- `datasets/cifar100.py` - CIFAR100Dataset implementation
-- `datasets/transforms/augmentations.py` - Albumentations transforms
+**Data Loaders Module (4 files):**
+- `data_loaders/__init__.py` - Dataset factory with `get_dataset()` function
+- `data_loaders/base.py` - BaseDataset abstract class
+- `data_loaders/cifar100.py` - CIFAR100Dataset implementation
+- `data_loaders/transforms/augmentations.py` - Albumentations transforms
 
 **Models Module (3 files):**
 - `models/__init__.py` - Model registry with `get_model()` function
@@ -79,11 +79,11 @@ session8-more-trials/
 
 #### ✅ Modularity
 - Each component has a single, well-defined responsibility
-- Code organized into logical modules (datasets, models, training, utils)
+- Code organized into logical modules (data_loaders, models, training, utils)
 - Clean separation between data loading, model architecture, training logic, and utilities
 
 #### ✅ Extensibility
-- **Add new dataset**: Create `datasets/new_dataset.py` and register in `__init__.py`
+- **Add new dataset**: Create `data_loaders/new_dataset.py` and register in `__init__.py`
 - **Add new model**: Create `models/new_model.py` and register in `__init__.py`
 - Easy to extend without modifying existing code
 
@@ -118,7 +118,7 @@ trainer.run()
 #### New Way (Modular):
 ```python
 # Clean imports from separate modules
-from datasets import get_dataset
+from data_loaders import get_dataset
 from models import get_model
 from training import get_optimizer, get_scheduler, Trainer
 from utils import get_device, CheckpointManager
@@ -229,7 +229,7 @@ See `MODULAR_GUIDE.md` for comprehensive documentation.
 - ✅ Faster test execution
 
 ### 4. Extensibility
-- ✅ Add CIFAR-10: Create 1 file in `datasets/`
+- ✅ Add CIFAR-10: Create 1 file in `data_loaders/`
 - ✅ Add ResNet18: Create 1 file in `models/`
 - ✅ Add new scheduler: Modify 1 file in `training/`
 
@@ -273,7 +273,7 @@ See `MODULAR_GUIDE.md` for comprehensive documentation.
 
 Successfully transformed a monolithic 1,500+ line training script into a clean, modular architecture with:
 - 18 new focused modules
-- 4 main packages (datasets, models, training, utils)
+- 4 main packages (data_loaders, models, training, utils)
 - Factory patterns for flexibility
 - Full backward compatibility
 - Comprehensive documentation

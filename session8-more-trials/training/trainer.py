@@ -334,8 +334,8 @@ class Trainer:
         print("="*70)
 
         # Create clean data loader (no mixup, no label smoothing)
-        from datasets.transforms import TestTransformWrapper
-        from datasets import get_dataset_info
+        from data_loaders.transforms import TestTransformWrapper
+        from data_loaders import get_dataset_info
 
         dataset_info = get_dataset_info('cifar100')
         test_transform = TestTransformWrapper(dataset_info['mean'], dataset_info['std'])
