@@ -1,0 +1,85 @@
+{
+  "lr_finder": {
+    "num_epochs": 3,
+    "start_lr": 1e-6,
+    "end_lr": 1.0,
+    "selection_method": "steepest_gradient"
+  },
+  "scheduler": {
+    "onecycle": {
+      "max_lr": 0.1,
+      "pct_start": 0.3,
+      "anneal_strategy": "cos",
+      "div_factor": 25.0,
+      "final_div_factor": 10000.0,
+      "three_phase": false
+    }
+  },
+  "lr_finder_description": {
+    "num_epochs": "Number of epochs to run LR range test (default: 3, recommended: 2-5)",
+    "start_lr": "Starting learning rate for range test (default: 1e-6)",
+    "end_lr": "Ending learning rate for range test (default: 1.0)",
+    "selection_method": "Method for selecting optimal LR from the curve. Options: 'steepest_gradient', 'before_divergence', 'valley', 'manual'"
+  },
+  "lr_finder_selection_methods": {
+    "steepest_gradient": {
+      "description": "Selects LR where loss is decreasing fastest (maximum negative gradient)",
+      "use_case": "Best for finding aggressive max_lr that enables fast learning",
+      "pros": "Often finds the sweet spot for rapid convergence",
+      "cons": "May be too aggressive for some models/datasets"
+    },
+    "before_divergence": {
+      "description": "Selects LR just before the loss starts increasing",
+      "use_case": "Conservative approach, safer choice for stable training",
+      "pros": "Lower risk of divergence, more stable training",
+      "cons": "May be overly conservative, slower convergence"
+    },
+    "valley": {
+      "description": "Selects LR at the minimum loss point",
+      "use_case": "Experimental method, useful for exploration",
+      "pros": "Represents the point of best performance during range test",
+      "cons": "May not generalize well to full training, can be misleading"
+    },
+    "manual": {
+      "description": "Displays the plot and allows manual inspection",
+      "use_case": "For experts who want to visually inspect the curve",
+      "pros": "Maximum control and flexibility",
+      "cons": "Requires manual intervention, breaks automation"
+    }
+  },
+  "description": {
+    "max_lr": "Maximum learning rate - the peak learning rate during the cycle (default: 0.1)",
+    "pct_start": "Percentage of cycle spent increasing learning rate (default: 0.3 = 30% warmup)",
+    "anneal_strategy": "Annealing strategy: 'cos' for cosine annealing, 'linear' for linear annealing (default: 'cos')",
+    "div_factor": "Initial learning rate = max_lr/div_factor (default: 25.0, so initial_lr = 0.1/25 = 0.004)",
+    "final_div_factor": "Final learning rate = initial_lr/final_div_factor (default: 10000.0)",
+    "three_phase": "If True, uses three phases (warmup, annealing, final annealing). If False, uses two phases (default: false)"
+  },
+  "usage_notes": {
+    "info": "This configuration file is used when --scheduler onecycle is specified",
+    "recommended_settings": {
+      "aggressive_training": {
+        "max_lr": 0.2,
+        "pct_start": 0.2,
+        "div_factor": 10.0
+      },
+      "conservative_training": {
+        "max_lr": 0.05,
+        "pct_start": 0.4,
+        "div_factor": 50.0
+      },
+      "default_cifar100": {
+        "max_lr": 0.1,
+        "pct_start": 0.3,
+        "div_factor": 25.0
+      }
+    },
+    "tips": [
+      "max_lr: Higher values (0.1-0.2) for faster convergence, lower (0.05-0.08) for stability",
+      "pct_start: 0.2-0.3 for aggressive warmup, 0.4-0.5 for gradual warmup",
+      "anneal_strategy: 'cos' is smoother and often works better than 'linear'",
+      "div_factor: Controls initial LR. Higher values = lower starting LR = more stable start",
+      "OneCycleLR includes built-in warmup, so no separate warmup scheduler is needed"
+    ]
+  }
+}
