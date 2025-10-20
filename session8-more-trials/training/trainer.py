@@ -220,12 +220,14 @@ class Trainer:
             if self.scheduler_type == 'cosine':
                 self.scheduler.step()
 
-            # Track metrics
+            # Check if best model BEFORE updating tracker
             current_lr = self.optimizer.param_groups[0]['lr']
+            is_best = test_acc > self.metrics_tracker.best_test_acc
+
+            # Track metrics (this will update best_test_acc)
             self.metrics_tracker.update(train_loss, train_acc, test_loss, test_acc, current_lr)
 
             # Save best model
-            is_best = test_acc > self.metrics_tracker.best_test_acc
             if is_best:
                 patience_counter = 0
                 print(f"*** New best model! Test Accuracy: {test_acc:.2f}% ***")
