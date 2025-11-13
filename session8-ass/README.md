@@ -39,6 +39,7 @@ After extensive experimentation across **6 major training sessions**, the best r
 - [Best Model: Session 02](#best-model-session-02-recommended)
 - [Alternative: Session 04](#alternative-session-04-higher-accuracy)
 - [Key Learnings](#key-learnings)
+- [Complete Training Logs](#-complete-training-logs)
 - [Reproduction Instructions](#reproduction-instructions)
 - [Model Artifacts](#model-artifacts)
 - [Gap Analysis](#gap-analysis)
@@ -563,6 +564,61 @@ Albumentations: Latest
 torchvision: Latest
 huggingface_hub: Latest
 ```
+
+---
+
+## 📊 Complete Training Logs
+
+Detailed epoch-by-epoch training logs for both recommended sessions are available:
+
+- **[SESSION-02-TRAINING-LOG.md](./SESSION-02-TRAINING-LOG.md)** - Complete logs for the recommended stable model (71.20%)
+- **[TRAINING-COMPARISON.md](./TRAINING-COMPARISON.md)** - Side-by-side comparison of Session 02 vs Session 04 with all epochs
+
+### Quick Comparison: Session 02 vs Session 04
+
+#### Every 10 Epochs Milestone
+
+| Epoch | Session 02 (Stable)<br>Test Accuracy | Session 04 (Aggressive)<br>Test Accuracy | Δ Difference | Notes |
+|-------|----------------------|------------------------|--------------|-------|
+| 10 | 47.60% | 51.11% | -3.51% | S04 early lead |
+| 20 | 53.06% | 57.15% | -4.09% | S04 pulling ahead |
+| 30 | 57.44% | 61.43% | -3.99% | Gap widening |
+| 40 | 59.54% | 63.88% | -4.34% | Before S04 phase changes |
+| 50 | 62.94% | 66.27% | -3.33% | S04: Dropout→0.2, Label→0.05 |
+| 60 | 64.38% | 69.31% | -4.93% | S04: LR scheduler change |
+| 70 | 66.21% | 70.37% | -4.16% | S04 near peak |
+| 80 | 68.20% | 71.89% | -3.69% | S04: Dropout→0.1 |
+| 90 | 69.53% | 70.00% | -0.47% | Gap closing |
+| 100 | **71.20%** ✅ | 69.64% | **+1.56%** | **S02 overtakes!** |
+| **Best** | **71.20%** (E100) | **72.98%** (E99) | **-1.78%** | S04 peaked earlier |
+
+#### Key Observations
+
+**Session 02 (Stable)**:
+- ✅ Consistent improvement throughout 100 epochs
+- ✅ Best model achieved at final epoch (100)
+- ✅ No performance drops or instability
+- ✅ Train-Test Gap: -1.94% (excellent generalization)
+- ✅ Final Train Acc: 69.26% (lower than test - no overfitting!)
+
+**Session 04 (Aggressive)**:
+- ⚠️ Peaked at epoch 99 (72.98%)
+- ⚠️ Performance dropped 3.34% at epoch 100 (69.64%)
+- ⚠️ Train-Test Gap: +24.87% (severe overfitting)
+- ⚠️ Final Train Acc: 97.85% (nearly perfect on train, poor generalization)
+- ✅ Highest test accuracy achieved (+1.78% over Session 02)
+
+### All 100 Epochs Data
+
+For complete epoch-by-epoch logs including:
+- Training loss and accuracy
+- Test loss and accuracy
+- Learning rate at each step
+- Configuration changes (Session 04)
+- Best model updates
+- Checkpoint saves
+
+**See**: [TRAINING-COMPARISON.md](./TRAINING-COMPARISON.md)
 
 ---
 
